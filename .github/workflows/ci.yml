@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  yaml-lint:
+    name: YAML syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pipx install yamllint
+
+      - name: Lint every YAML under the repo
+        run: |
+          yamllint -d '{extends: relaxed, rules: {line-length: disable}}' \
+            registry.yaml printers/*/profile.yaml
+
+  profile-structure:
+    name: Profile directory structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Every printer has a profile.yaml and README
+        run: |
+          fail=0
+          for d in printers/*/; do
+            id=$(basename "$d")
+            for required in profile.yaml README.md; do
+              if [ ! -f "$d$required" ]; then
+                echo "::error::$d is missing $required"
+                fail=1
+              fi
+            done
+          done
+          exit $fail
+
+      - name: registry.yaml lists every printers/* directory
+        run: |
+          python3 <<'PY'
+          import pathlib, re, sys
+          import yaml
+          reg = yaml.safe_load(open("registry.yaml"))
+          listed = {p["id"] for p in reg.get("profiles", [])}
+          on_disk = {d.name for d in pathlib.Path("printers").iterdir() if d.is_dir()}
+          missing_in_registry = on_disk - listed
+          missing_on_disk = listed - on_disk
+          ok = True
+          if missing_in_registry:
+              print(f"::error::printers/ has profiles not listed in registry.yaml: {sorted(missing_in_registry)}")
+              ok = False
+          if missing_on_disk:
+              print(f"::error::registry.yaml lists profiles that don't exist on disk: {sorted(missing_on_disk)}")
+              ok = False
+          sys.exit(0 if ok else 1)
+          PY
+
+  # Once the validator binary from CepheusLabs/deckhand is published as a
+  # release asset, this job downloads it and runs `deckhand-profile-lint`
+  # against every profile.yaml.
+  schema-validate:
+    name: Validate against profile.schema.json
+    runs-on: ubuntu-latest
+    if: false
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "enable once the schema validator is published"
