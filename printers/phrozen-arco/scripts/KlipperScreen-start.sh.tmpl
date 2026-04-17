@@ -1,0 +1,50 @@
+#!/bin/bash
+# KlipperScreen-start.sh (Deckhand-rewritten)
+#
+# Replaces Phrozen's stock KlipperScreen-start.sh, which launched
+# phrozen_master, voronFDM, frpc, and an aliyun NTP call and actively
+# deleted any moonraker-obico install on every boot.
+#
+# Behavior in this version is decided by Deckhand at install time based on
+# the user's wizard choices. The template placeholders below are filled in
+# by Deckhand's template engine; anything the user didn't opt into is
+# absent from the generated script.
+
+set -e
+
+# Stop the MKS alternative screen daemon so /dev/ttyS1 is available.
+systemctl stop makerbase-client.service 2>/dev/null || true
+
+{{#if phrozen_master.stub}}
+# phrozen_master: stub only (no HDL cloud phone-home).
+if ! pgrep -f phrozen_master_stub.py >/dev/null 2>&1; then
+    nohup python3 /home/mks/phrozen_master_stub.py \
+        > /tmp/phrozen_master_stub.log 2>&1 &
+    sleep 0.5
+fi
+{{/if}}
+
+{{#if phrozen_master.keep}}
+# phrozen_master: full (phones home to hdlcontrol.com for Zigbee LEDs).
+/home/mks/klipper/klippy/extras/phrozen_dev/frp-oms/phrozen_master \
+    >/dev/null 2>&1 &
+sleep 1
+{{/if}}
+
+{{#if screen.voronFDM}}
+# voronFDM serial touchscreen daemon.
+export LD_LIBRARY_PATH=/home/mks/libwpa_stub
+exec /home/mks/voronFDM
+{{/if}}
+
+{{#if screen.arco_screen}}
+# arco_screen is a systemd service; no launch here.
+# Block forever so the KlipperScreen service considers this script alive.
+while true; do sleep 3600; done
+{{/if}}
+
+{{#if screen.none}}
+# No screen daemon selected. Keep the process alive so KlipperScreen's
+# service unit stays happy.
+while true; do sleep 3600; done
+{{/if}}

@@ -1,0 +1,704 @@
+schema_version: 1
+profile_id: phrozen-arco
+profile_version: 0.1.0
+display_name: Phrozen Arco
+manufacturer: Phrozen
+model: Arco
+status: alpha
+maintainers:
+  - { name: "Cepheus Labs", contact: "support@cepheuslabs.com" }
+
+compatible_with:
+  firmware_variants:
+    - id: default
+      display_name: Arco (stock)
+      notes: Only SKU observed so far. Hardware variants may exist for MKS-branded vs Phrozen-branded boards.
+
+required_hosts:
+  - github.com
+  - raw.githubusercontent.com
+  - codeload.github.com
+  - redirect.armbian.com
+  - imola.armbian.com
+  - archive.debian.org
+  - deb.debian.org
+
+hardware:
+  architecture: aarch64
+  sbc:
+    soc: rockchip-rk3328
+    board: mks-pi
+    emmc_size_bytes: 7818182656
+  kinematics: corexy
+  build_volume_mm: { x: 330, y: 330, z: 303 }
+  steppers:
+    - { axis: x,        driver: tmc5160, mode: spi }
+    - { axis: y,        driver: tmc5160, mode: spi }
+    - { axis: z,        driver: tmc2209, mode: uart, count: 2 }
+    - { axis: extruder, driver: tmc2209, mode: uart }
+  sensors:
+    - { kind: thermistor, name: extruder, source: ntc }
+    - { kind: thermistor, name: bed,      source: ntc }
+    - { kind: thermistor, name: chamber,  source: ntc }
+    - { kind: adc, name: filament, pin: "MKS_THR:PA2" }
+  features:
+    - motorized_probe_deploy
+    - chamber_fan
+    - accelerometer_on_toolhead
+
+os:
+  stock:
+    distro: armbian
+    version: "22.05.0-trunk"
+    codename: buster
+    python: "3.7"
+    notes: |
+      Stock OS is EOL Debian Buster with Python 3.7. Kalico and modern
+      Klipper both need Python 3.9+, so a Python 3.11 build-from-source
+      step is required on the stock-keep flow. Also ships with apt sources
+      pinned to mirrors.aliyun.com; Deckhand switches to archive.debian.org.
+  fresh_install_options:
+    - id: armbian-bookworm-cli
+      display_name: Armbian Bookworm (CLI) for MKS Pi
+      architecture: aarch64
+      url: https://redirect.armbian.com/mkspi/Bookworm_current
+      sha256: null
+      size_bytes_approx: 1500000000
+      recommended: true
+      notes: |
+        Ships Python 3.11, systemd, clean Armbian base. No Phrozen
+        services. Use the CLI variant (not Desktop).
+  boot_mode: mbr
+
+ssh:
+  default_port: 22
+  default_credentials:
+    - { user: mks, password: makerbase }
+  recommended_user_after_install: mks
+  fingerprint_notes: |
+    First connection prompts the user to trust the host key. No pre-shared
+    fingerprint; Phrozen units generate their own on first boot.
+
+firmware:
+  choices:
+    - id: kalico
+      display_name: Kalico
+      description: |
+        Community-maintained Klipper fork (formerly Danger Klipper). Monthly
+        rebases, adds danger_options, gcode_shell_command, trad_rack, and
+        better dockable probe support. Recommended.
+      repo: https://github.com/KalicoCrew/kalico
+      ref: main
+      install_path: "~/kalico"
+      venv_path: "~/kalico-env"
+      python_min: "3.9"
+      recommended: true
+    - id: klipper
+      display_name: Klipper (modern)
+      description: Upstream Klipper3D/klipper, latest master.
+      repo: https://github.com/Klipper3d/klipper
+      ref: master
+      install_path: "~/klipper"
+      venv_path: "~/klippy-env"
+      python_min: "3.8"
+  default_choice: kalico
+  replace_stock_in_place: true
+  snapshot_before_replace: true
+  requires_python_rebuild_if:
+    - condition: "os_python_below(firmware.selected.python_min)"
+      action: "build-python-from-source"
+      script: shared/scripts/build-python-3.11.sh
+
+stack:
+  moonraker:
+    repo: https://github.com/Arksine/moonraker
+    ref: master
+    install_path: "~/moonraker"
+    venv_path: "~/moonraker-env"
+    port: 7125
+    trusted_clients:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 127.0.0.0/8
+      - 169.254.0.0/16
+  webui:
+    choices:
+      - id: fluidd
+        display_name: Fluidd
+        release_repo: fluidd-core/fluidd
+        asset_pattern: "fluidd.zip"
+        install_path: "~/fluidd"
+        default_port: 8808
+      - id: mainsail
+        display_name: Mainsail
+        release_repo: mainsail-crew/mainsail
+        asset_pattern: "mainsail.zip"
+        install_path: "~/mainsail"
+        default_port: 81
+    default_choices: [fluidd]
+    allow_multiple: true
+    allow_none: true
+  kiauh:
+    repo: https://github.com/dw-0/kiauh
+    ref: master
+    install_path: "~/kiauh"
+    default_install: true
+    wizard:
+      explainer: |
+        KIAUH is the Klipper Installation And Update Helper — an interactive
+        menu you run over SSH that lets you install, update, remove, and
+        troubleshoot every piece of the Klipper stack. Deckhand handles your
+        first-install; KIAUH handles tweaks you may want later.
+      examples:
+        - Install a second Klipper instance for a second toolhead
+        - Swap between Klipper and Kalico without reflashing
+        - Reinstall Moonraker cleanly if it breaks
+        - Add a timelapse plugin
+  crowsnest:
+    repo: https://github.com/mainsail-crew/crowsnest
+    ref: master
+    install_path: "~/crowsnest"
+    included: true
+
+mcus:
+  - id: main
+    display_name: Main MCU (STM32F407)
+    chip: stm32f407xx
+    clock_hz: 168000000
+    clock_ref_hz: 8000000
+    flash_size: 0x80000
+    application_offset: 0x8008000
+    transport:
+      kind: usb
+      select: stm32_usb_pa11_pa12
+      flash_method: dfu
+      flash_device_id: "0483:df11"
+    klipper_serial: "/dev/serial/by-id/usb-Klipper_stm32f407xx_*"
+  - id: toolhead
+    display_name: Toolhead MCU (STM32F103)
+    chip: stm32f103xe
+    clock_hz: 72000000
+    clock_ref_hz: 8000000
+    flash_size: 0x20000
+    application_offset: 0x8007000
+    transport:
+      kind: serial
+      select: stm32_serial_usart1
+      baud: 250000
+      flash_method: stm32flash
+      flash_device_path: /dev/ttyS0
+      requires_physical_access: true
+      physical_access_notes: |
+        Hold BOOT0 button on the toolhead board, press and release RESET,
+        then release BOOT0. Then flash.
+    klipper_serial: "/dev/ttyS0"
+    klipper_alias: MKS_THR
+
+screens:
+  - id: arco_screen
+    display_name: arco_screen (OSS — recommended)
+    source_kind: bundled
+    source_path: ./screen-daemon/arco_screen/
+    service_name: arco-screen
+    install_script: ./screen-daemon/install.sh
+    supports:
+      power_loss_recovery: true
+      file_browser: true
+      mmu_ui: partial
+    status: beta
+    recommended: true
+  - id: voronFDM
+    display_name: voronFDM (stock, closed-source ARM binary)
+    source_kind: restore_from_backup
+    restore_paths:
+      - "/home/mks/voronFDM"
+      - "/home/mks/libwpa_stub/"
+      - "/home/mks/klipper/klippy/extras/phrozen_dev/serial-screen/voronFDM"
+    depends_on:
+      phrozen_master: stub_or_real
+    status: stable
+    notes: |
+      Works well but can't be updated or audited. Bound to the specific
+      TJC screen firmware shipped with the printer. Requires a stub at
+      /tmp/UNIX.domain to satisfy its startup check — Deckhand installs
+      phrozen_master_stub.py when this screen is chosen.
+
+addons:
+  - id: chromakit
+    kind: ams
+    display_name: ChromaKit MMU
+    units_min: 1
+    units_max: 2
+    slots_per_unit: 4
+    protocol: serial_binary_19200
+    klipper_extras:
+      - source: ./klipper-extras/phrozen_dev/
+        install_as: "{{firmware.install_path}}/klippy/extras/phrozen_dev"
+        method: symlink
+      - source: ./klipper-extras/CatchIP.py
+        install_as: "{{firmware.install_path}}/klippy/extras/CatchIP.py"
+        method: symlink
+    firmware_flashing:
+      tool: ./firmware/flash-chromakit.sh
+      requires_transient_binaries:
+        - name: phrozen_master
+          source_path: "/home/mks/klipper/klippy/extras/phrozen_dev/frp-oms/phrozen_master"
+          purpose: serial_relay
+          licensing_note: |
+            Phrozen proprietary binary. Not redistributed by Deckhand.
+            Users copy it from their own stock eMMC backup when flashing
+            ChromaKit firmware.
+        - name: phrozen_slave_ota
+          source_path: "/home/mks/klipper/klippy/extras/phrozen_dev/frp-oms/phrozen_slave_ota"
+          purpose: flash_tool
+          licensing_note: |
+            Phrozen proprietary binary. Same sourcing rules as above.
+      network_sandboxing:
+        method: iptables
+        block_host: "42.193.239.84"
+        block_port: 7000
+    firmware_blobs:
+      description: |
+        ChromaKit MCU firmware blobs are Phrozen proprietary and not
+        redistributed here. Users can flash whatever version ships on their
+        unit (no change needed) or extract a newer blob from a Phrozen OTA
+        update package if they have one.
+
+stock_os:
+  detections:
+    - kind: file_exists
+      path: "/home/mks/klipper/klippy/extras/phrozen_dev/frp-oms/phrozen_master"
+      required: true
+    - kind: file_exists
+      path: "/home/mks/phrozen_dir/phrozen_install.sh"
+      required: true
+    - kind: file_contains
+      path: "/etc/hostname"
+      pattern: "mkspi"
+      required: false
+    - kind: process_running
+      name: voronFDM
+      required: false
+      note: Confirms Phrozen boot path vs. MKS boot path (mksclient).
+
+  services:
+    - id: frpc
+      display_name: Phrozen FRP reverse tunnel
+      process_pattern: "frpc"
+      launched_by:
+        kind: script
+        path: "/home/mks/klipper/klippy/extras/phrozen_dev/frp-oms/frp/frpc_script"
+      phones_home:
+        - { host: "42.193.239.84", port: 7000 }
+      default_action: remove
+      wizard:
+        question: |
+          Remove Phrozen's reverse tunnel?
+        helper_text: |
+          Always-on reverse tunnel to 42.193.239.84:7000 using a hardcoded
+          shared developer token (`lancaigang` — the developer's name).
+          Purpose isn't officially documented — likely intended for a future
+          Phrozen mobile app based on how it's wired. Whatever the intent,
+          today it's an open remote-access channel reachable by anyone with
+          the server + token.
+        options:
+          - { id: keep,   label: Keep }
+          - { id: remove, label: Remove (recommended) }
+        recommended: remove
+
+    - id: phrozen_master
+      display_name: Phrozen HDL Zigbee gateway
+      process_pattern: "phrozen_master"
+      launched_by:
+        kind: script
+        path: "/home/mks/KlipperScreen/scripts/KlipperScreen-start.sh"
+      roles:
+        - { id: hdl_cloud_gateway,     description: "Phones home to hdlcontrol.com for LED control via Zigbee." }
+        - { id: uds_for_voronfdm,      description: "Local /tmp/UNIX.domain socket voronFDM connects to on startup." }
+        - { id: chromakit_flash_relay, description: "Transient serial relay used by flash-chromakit.sh during ChromaKit firmware flashing." }
+      default_action: derived
+      wizard:
+        question: |
+          What to do with Phrozen's HDL Zigbee gateway?
+        helper_text: |
+          Does three things: phones home to HDL cloud for Zigbee enclosure
+          LED control, provides a local socket voronFDM needs on startup,
+          and serves as a serial relay during ChromaKit firmware flashing.
+          We always preserve the flash-relay role by invoking the binary
+          transiently from flash-chromakit.sh — the question is what to do
+          about the daemon.
+        options:
+          - { id: keep,   label: Keep running (phones home, LEDs via HDL app) }
+          - { id: stub,   label: Stub (satisfies voronFDM, no phone-home) }
+          - { id: remove, label: Remove entirely }
+        default_rules:
+          - when: selected(screen, voronFDM)
+            then: stub
+          - when: selected(screen, arco_screen)
+            then: remove
+
+    - id: phrozen_ota
+      display_name: Phrozen OTA stack (phrozen_slave_ota + ota_control)
+      process_pattern: "phrozen_slave_ota|ota_control"
+      default_action: remove
+      wizard: none
+      note: |
+        Removed always. Does not affect Klipper/Kalico/Moonraker/Fluidd/
+        Mainsail/KIAUH updates (those have native update paths). ChromaKit
+        MCU flashing still works via flash-chromakit.sh, which invokes the
+        binaries on demand.
+
+    - id: makerbase_udp
+      display_name: makerbase-udp (LAN HTTP/file-upload service)
+      process_pattern: "udp_server"
+      systemd_unit: makerbase-udp.service
+      default_action: keep
+      wizard:
+        question: Disable the MKS LAN file-upload service?
+        helper_text: |
+          Listens on UDP + HTTP (wz simple httpd) with no auth. Used by MKS
+          slicer / phone app for LAN discovery + gcode upload. Useful for
+          some users; attack surface for security-conscious ones.
+        options:
+          - { id: keep,    label: "Keep (recommended if you use MKS tools)" }
+          - { id: disable, label: "Disable (security-focused)" }
+
+    - id: makerbase_net_mods
+      display_name: makerbase-net-mods (USB wifi provisioning)
+      systemd_unit: makerbase-net-mods.service
+      default_action: keep
+      wizard:
+        question: Disable USB-stick wifi provisioning?
+        helper_text: |
+          On every boot, copies wpa_supplicant.conf from a USB stick into
+          /etc/. Handy for first-time setup; physical-access takeover
+          vector afterward.
+        options:
+          - { id: keep,    label: "Keep" }
+          - { id: disable, label: "Disable (recommended after wifi is set)" }
+
+    - id: makerbase_shutdown
+      display_name: makerbase-shutdown (vestigial GPIO monitor)
+      systemd_unit: makerbase-shutdown.service
+      default_action: disable
+      wizard: none
+      note: |
+        Monitors GPIO80 for a signal that doesn't exist on shipping
+        hardware. This unit appears to be leftover from a planned feature
+        that wasn't completed (the printer has only a rocker switch for
+        power, no soft-shutdown button). Disabled by default.
+
+    - id: klipperscreen
+      display_name: KlipperScreen (installed but never runs)
+      systemd_unit: KlipperScreen.service
+      launched_by:
+        kind: script
+        path: "/home/mks/KlipperScreen/scripts/KlipperScreen-start.sh"
+        note: |
+          Phrozen replaced the stock KlipperScreen-start.sh with a custom
+          script that launches voronFDM, phrozen_master, frpc, and an
+          aliyun NTP call — KlipperScreen itself never actually runs.
+          Deckhand rewrites this script cleanly as part of the install.
+      default_action: keep_service_rewrite_script
+      wizard: none
+
+    - id: makerbase_client
+      display_name: makerbase-client (mksclient — MKS alternative screen daemon)
+      systemd_unit: makerbase-client.service
+      default_action: keep_disabled
+      wizard: none
+      note: |
+        MKS's own C++ screen daemon for the TJC touchscreen, at
+        /root/phrozen/build/mksclient. On MKS-branded boards this would run
+        instead of voronFDM; on Phrozen-branded boards the boot script
+        actively stops this service so voronFDM can claim /dev/ttyS1.
+        Deckhand doesn't use mksclient as a screen option (unvalidated)
+        but leaves the service in place disabled.
+
+    - id: makerbase_auto_fresh
+      display_name: makerbase-auto-fresh (sanity probe)
+      systemd_unit: makerbase-auto-fresh.service
+      default_action: keep
+      wizard: none
+      note: "Oneshot sanity check. No phone-home indicators. Harmless."
+
+    - id: makerbase_byid
+      display_name: makerbase-byid (MKS_THR.cfg serial patcher)
+      systemd_unit: makerbase-byid.service
+      default_action: keep
+      wizard: none
+      note: |
+        Dynamically rewrites /home/mks/printer_data/config/MKS_THR.cfg
+        with the current /dev/serial/by-id/* path at boot. Useful; leave it.
+
+    - id: moonraker_obico_rm_loop
+      display_name: Obico deletion loop in KlipperScreen-start.sh
+      default_action: disable
+      wizard: none
+      note: |
+        The stock KlipperScreen-start.sh includes `rm -rf ~/moonraker-obico
+        ~/moonraker-obico-env` lines that run on every boot, even though
+        moonraker-obico.service is enabled. Creates a broken loop. Deckhand
+        drops these lines when rewriting the boot script.
+
+  files:
+    - id: rsa_priv
+      display_name: HDL Zigbee gateway private key (plaintext)
+      paths:
+        - "/home/mks/hdlDat/rsa_priv.txt"
+        - "/etc/hdlDat/rsa_priv.txt"
+        - "/hdlFamily/rsa_priv.txt"
+      default_action: delete
+      wizard:
+        helper_text: |
+          Plaintext RSA private key used by phrozen_master to authenticate
+          to HDL cloud. Not needed once phrozen_master is disabled or
+          stubbed. Security liability if left on disk.
+        recommended: delete
+
+    - id: elegoo_update
+      display_name: Elegoo update-installer script
+      paths: ["/home/mks/update.sh"]
+      default_action: delete
+      wizard:
+        helper_text: |
+          Installs an Elegoo-branded `.deb` from a USB stick. Suggests the
+          Arco shares OEM lineage with an Elegoo product. Unused on most
+          units.
+
+    - id: typo_files
+      display_name: Accidental shell-redirect artifacts
+      paths:
+        - "/home/mks/udo systemctl restart crowsnest"
+        - "/home/mks/ystemctl status chronyd"
+      default_action: delete
+      wizard:
+        helper_text: Command text accidentally saved as filenames. Harmless but ugly.
+
+    - id: root_core
+      display_name: /root/core (crash dump)
+      paths: ["/root/core"]
+      default_action: delete
+      wizard:
+        helper_text: 34 MB core dump from a past mksclient crash. No value.
+
+    - id: phrozen_dir
+      display_name: ~/phrozen_dir/ install-scaffolding leftover
+      paths: ["/home/mks/phrozen_dir/"]
+      default_action: delete
+      wizard:
+        helper_text: Phrozen's own first-boot install directory. Unused after install.
+
+    - id: hdlDat
+      display_name: HDL Zigbee state directories (3 locations)
+      paths:
+        - "/home/mks/hdlDat/"
+        - "/etc/hdlDat/"
+        - "/hdlFamily/"
+      default_action: delete
+      wizard:
+        helper_text: |
+          Zigbee gateway state data including the plaintext RSA key,
+          Zigbee device lists, HDL cloud login endpoints, etc. Useless
+          without phrozen_master.
+
+    - id: dated_notes
+      display_name: Dated .txt notes in phrozen_dev/
+      paths: ["/home/mks/klipper/klippy/extras/phrozen_dev/*.txt"]
+      default_action: delete
+      wizard:
+        helper_text: |
+          Developer notes in Chinese (e.g. 240402-1.txt, 250412.txt).
+          Not code, not config.
+
+    - id: cmds_old
+      display_name: Old duplicate extras file
+      paths: ["/home/mks/klipper/klippy/extras/phrozen_dev/cmds-240226.py"]
+      default_action: delete
+      wizard:
+        helper_text: Pre-dates current cmds.py. Never loaded.
+
+  paths:
+    - id: klipper_install
+      path: "/home/mks/klipper"
+      role: stock_klipper
+      action: snapshot_and_replace
+      snapshot_to: "/home/mks/klipper.stock.{{timestamp}}"
+    - id: klippy_env
+      path: "/home/mks/klippy-env"
+      role: stock_klipper_venv
+      action: snapshot_and_replace
+      snapshot_to: "/home/mks/klippy-env.stock.{{timestamp}}"
+    - id: printer_data
+      path: "/home/mks/printer_data"
+      role: config + state
+      action: preserve
+    - id: moonraker
+      path: "/home/mks/moonraker"
+      role: third-party
+      action: preserve
+
+wizard:
+  title: Phrozen Arco Setup
+  # Uses the default step set; no steps_override needed.
+  extra_steps:
+    - id: chromakit_firmware
+      when: selected(choose_path, stock_keep)
+      title: Flash ChromaKit firmware?
+      kind: choose_one
+      question: |
+        Your ChromaKit MCU firmware may already be at the factory version
+        you want. Flash anyway? (You need the Phrozen proprietary helper
+        binaries on disk — Deckhand uses the copies already present on your
+        stock install.)
+      options:
+        - { id: flash, label: Flash }
+        - { id: skip,  label: Skip (keep current) }
+
+flows:
+  stock_keep:
+    enabled: true
+    preconditions:
+      - { kind: ssh_ok,         severity: block }
+      - { kind: free_space_min, mountpoint: "/home/mks", bytes: 1500000000, severity: block }
+      - { kind: not_printing,   severity: warn }
+    steps:
+      - id: backup_prompt
+        kind: prompt
+        message: |
+          Before continuing, back up the whole eMMC to an image file.
+          Deckhand can do this for you (dd the physical disk, via a USB
+          eMMC adapter). If you've never backed up, do it now — it's your
+          only path back to stock firmware if something goes wrong.
+        actions:
+          - { id: backup_now, label: Back up now (recommended) }
+          - { id: i_have_one, label: I already have a backup }
+          - { id: skip,       label: Skip (not recommended) }
+      - id: stop_services
+        kind: ssh_commands
+        commands:
+          - "sudo systemctl stop klipper KlipperScreen moonraker crowsnest || true"
+          - "sudo killall phrozen_master frpc phrozen_slave_ota ota_control voronFDM mksclient 2>/dev/null || true"
+      - id: snapshot_paths
+        kind: snapshot_paths
+        paths: [klipper_install, klippy_env]
+      - id: fix_apt_sources
+        kind: write_file
+        target: "/etc/apt/sources.list"
+        template: ./scripts/sources.list.bookworm-fallback.tmpl
+        note: |
+          Stock has mirrors.aliyun.com; we switch to archive.debian.org for
+          EOL buster repositories.
+      - id: python_rebuild_if_needed
+        kind: conditional
+        when: os_python_below("3.9")
+        then:
+          - { kind: script, path: shared/scripts/build-python-3.11.sh }
+      - id: install_firmware
+        kind: install_firmware
+        confirm_before_run: true
+      - id: install_klipper_extras
+        kind: link_extras
+        sources:
+          - ./klipper-extras/phrozen_dev/
+          - ./klipper-extras/CatchIP.py
+      - id: install_stack
+        kind: install_stack
+        components:
+          - moonraker
+          - "{{stack.webui.selected}}"
+          - kiauh?
+          - crowsnest
+      - id: apply_services_decisions
+        kind: apply_services
+      - id: apply_files_decisions
+        kind: apply_files
+      - id: rewrite_boot_hook
+        kind: write_file
+        target: "/home/mks/KlipperScreen/scripts/KlipperScreen-start.sh"
+        template: ./scripts/KlipperScreen-start.sh.tmpl
+        confirm_before_run: true
+      - id: install_screen
+        kind: install_screen
+      - id: flash_mcus
+        kind: flash_mcus
+        which: [main, toolhead]
+        confirm_before_run: true
+      - id: start_services
+        kind: ssh_commands
+        commands:
+          - "sudo systemctl daemon-reload"
+          - "sudo systemctl enable --now klipper moonraker"
+      - id: run_verifiers
+        kind: verify
+
+  fresh_flash:
+    enabled: true
+    steps:
+      - id: choose_os_image
+        kind: choose_one
+        options_from: os.fresh_install_options
+      - id: choose_target_disk
+        kind: disk_picker
+        filter:
+          bus: [usb]
+          removable: true
+          size_near_bytes: "{{ hardware.sbc.emmc_size_bytes }}"
+      - id: download_os
+        kind: os_download
+      - id: flash_disk
+        kind: flash_disk
+        verify_after_write: true
+        confirm_before_run: true
+      - id: flash_done_prompt
+        kind: prompt
+        message: |
+          Flash complete. Put the eMMC back in the printer and power on.
+          When you can SSH to the printer, click Continue.
+      - id: wait_for_ssh
+        kind: wait_for_ssh
+        timeout_seconds: 600
+      - id: first_boot_setup
+        kind: ssh_commands
+        commands:
+          - "sudo apt-get update"
+          - "sudo apt-get install -y git python3-venv build-essential"
+      - id: install_firmware
+        kind: install_firmware
+      - id: install_stack
+        kind: install_stack
+        components: [moonraker, "{{stack.webui.selected}}", kiauh?, crowsnest]
+      - id: install_klipper_extras
+        kind: link_extras
+        sources:
+          - ./klipper-extras/phrozen_dev/
+          - ./klipper-extras/CatchIP.py
+      - id: install_screen
+        kind: install_screen
+      - id: flash_mcus
+        kind: flash_mcus
+        which: [main, toolhead]
+        confirm_before_run: true
+      - id: run_verifiers
+        kind: verify
+
+verifiers:
+  - id: klipper_service_active
+    kind: ssh_command
+    command: "systemctl is-active klipper"
+    expect_stdout_contains: active
+  - id: moonraker_reports_klipper
+    kind: http_get
+    url: "http://{{host}}:7125/printer/info"
+    expect_json_path: "$.result.state"
+    expect_value: ready
+  - id: chromakit_connect
+    kind: moonraker_gcode
+    command: P28
+    expect_exit: ok
+    optional: true
+  - id: no_phonehome_processes
+    kind: ssh_command
+    command: "ps aux | grep -E 'phrozen_master|frpc|slave_ota|ota_control' | grep -v grep | wc -l"
+    expect_stdout_equals: "0"

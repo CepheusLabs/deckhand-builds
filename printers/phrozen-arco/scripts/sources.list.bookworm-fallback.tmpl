@@ -1,0 +1,11 @@
+# /etc/apt/sources.list for stock Arco — Debian Buster is EOL and was
+# pinned by Phrozen to mirrors.aliyun.com. Point back to the canonical
+# Debian archive (archive.debian.org) for historical buster access, plus
+# armbian for any SBC-specific packages.
+#
+# Written by Deckhand during the stock-keep flow.
+
+deb http://archive.debian.org/debian buster main contrib non-free
+deb http://archive.debian.org/debian buster-updates main contrib non-free
+deb http://archive.debian.org/debian buster-backports main contrib non-free
+deb http://archive.debian.org/debian-security/ buster/updates main contrib non-free

@@ -1,0 +1,20 @@
+{
+  "metadata": {
+    "index": 99,
+    "module": "phrozen_arco_extension",
+    "maintained_by": "CepheusLabs",
+    "display_name": "Phrozen Arco (Kalico)",
+    "description": [
+      "Mainline the Phrozen Arco onto Kalico",
+      "- ChromaKit (MMU) support",
+      "- Printer configs and macros",
+      "- MCU firmware flash",
+      "- WiFi fix for MKS Pi",
+      "- Serial screen daemon (voronFDM)",
+      "\n\n",
+      "Requires: Kalico (not stock Klipper)"
+    ],
+    "repo": "https://github.com/CepheusLabs/phrozen-arco-kalico",
+    "updates": true
+  }
+}

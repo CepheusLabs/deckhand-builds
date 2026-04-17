@@ -1,0 +1,168 @@
+{
+  "page_ids": {
+    "1": "first",
+    "2": "firstname",
+    "4": "firstwifi",
+    "5": "firstwificon",
+    "6": "popup1",
+    "7": "popup2",
+    "8": "check",
+    "9": "NoButLoad",
+    "10": "choose",
+    "11": "history",
+    "12": "home",
+    "13": "print",
+    "14": "tool",
+    "16": "info",
+    "17": "getready",
+    "18": "setwifi",
+    "19": "wait",
+    "20": "homekey",
+    "21": "wificon",
+    "22": "usb",
+    "23": "printplan",
+    "24": "printing",
+    "25": "printfinish",
+    "26": "manual",
+    "27": "herdware",
+    "28": "printerinfo",
+    "29": "social",
+    "30": "temperature",
+    "31": "print_tool",
+    "32": "settem",
+    "33": "setsp",
+    "34": "extruder",
+    "35": "local",
+    "36": "standby",
+    "37": "auto",
+    "38": "setsd",
+    "39": "filament",
+    "40": "cutt_checking",
+    "41": "monochrome",
+    "42": "system",
+    "43": "settime",
+    "44": "offdet",
+    "46": "if_reprint",
+    "47": "update",
+    "48": "language",
+    "50": "lifting",
+    "53": "polychrome",
+    "55": "Chamber_fan",
+    "56": "c_cail",
+    "57": "cutt_cail",
+    "58": "cutt_arco",
+    "59": "states",
+    "61": "update_check"
+  },
+  "touch_map": {
+    "home": {
+      "3": {"action": "navigate", "target": "settem", "heater": "extruder"},
+      "4": {"action": "navigate", "target": "settem", "heater": "heater_bed"},
+      "9": {"action": "setting", "key": "led_toggle"}
+    },
+    "tool": {
+      "2": {"action": "navigate", "target": "print"},
+      "5": {"action": "navigate", "target": "update"},
+      "9": {"action": "navigate", "target": "manual"},
+      "10": {"action": "gcode", "command": "UNLOAD_FILAMENT"},
+      "12": {"action": "navigate", "target": "system"},
+      "16": {"action": "navigate", "target": "Chamber_fan"},
+      "18": {"action": "navigate", "target": "language"}
+    },
+    "info": {
+      "11": {"action": "navigate", "target": "printerinfo"},
+      "15": {"action": "navigate", "target": "states"}
+    },
+    "choose": {
+      "252": {"action": "navigate", "target": "history"},
+      "254": {"action": "navigate", "target": "local"}
+    },
+    "manual": {
+      "1": {"action": "setting", "key": "jog_step", "value": 0.1},
+      "2": {"action": "setting", "key": "jog_step", "value": 1},
+      "3": {"action": "setting", "key": "jog_step", "value": 10},
+      "9": {"action": "gcode", "command": "G28"},
+      "10": {"action": "setting", "key": "jog_y_back"},
+      "11": {"action": "setting", "key": "jog_x_left"},
+      "12": {"action": "setting", "key": "jog_x_right"},
+      "14": {"action": "setting", "key": "jog_z_up"},
+      "16": {"action": "setting", "key": "jog_z_down"},
+      "18": {"action": "setting", "key": "jog_y_forward"},
+      "31": {"action": "setting", "key": "disable_steppers"}
+    },
+    "setwifi": {
+      "10": {"action": "gcode", "command": "WIFI_SCROLL_UP"},
+      "11": {"action": "gcode", "command": "WIFI_SCROLL_DOWN"},
+      "12": {"action": "gcode", "command": "WIFI_REFRESH"}
+    },
+    "herdware": {
+      "5": {"action": "gcode", "command": "PRZ_AUTO_LEVEL"},
+      "6": {"action": "gcode", "command": "PRZ_RESONANCE_COMP"},
+      "7": {"action": "gcode", "command": "PRZ_NOZZLE_TEMP_CAL"},
+      "9": {"action": "gcode", "command": "PRZ_BED_TEMP_CAL"},
+      "31": {"action": "gcode", "command": "PRZ_CUTTER_POS_CAL"}
+    },
+    "settem": {
+      "1": {"action": "navigate", "target": "home"},
+      "18": {"action": "setting", "key": "temp_confirm"},
+      "170": {"action": "setting", "key": "temp_numpad_update"}
+    },
+    "extruder": {
+      "1": {"action": "navigate", "target": "tool"},
+      "18": {"action": "setting", "key": "temp_confirm"},
+      "170": {"action": "setting", "key": "temp_numpad_update"}
+    }
+  },
+  "component_names": {
+    "home": {
+      "3": "nozzle_temp_btn",
+      "4": "bed_temp_btn",
+      "9": "led_toggle_btn"
+    },
+    "tool": {
+      "2": "nav_print_btn",
+      "5": "update_btn",
+      "9": "manual_adjustment_btn",
+      "10": "unload_filament_btn",
+      "12": "system_btn",
+      "16": "cooling_btn",
+      "18": "language_btn"
+    },
+    "info": {
+      "11": "printer_info_btn",
+      "15": "error_log_btn"
+    },
+    "choose": {
+      "252": "history_btn",
+      "254": "local_storage_btn"
+    },
+    "setwifi": {
+      "10": "scroll_up_btn",
+      "11": "scroll_down_btn",
+      "12": "refresh_btn"
+    },
+    "herdware": {
+      "5": "auto_level_btn",
+      "6": "resonance_comp_btn",
+      "7": "nozzle_temp_cal_btn",
+      "9": "bed_temp_cal_btn",
+      "31": "cutter_pos_cal_btn"
+    },
+    "extruder": {
+      "1": "back_btn",
+      "18": "temp_confirm_btn"
+    }
+  },
+  "_notes": {
+    "page_ids_source": "All 53 page_ids obtained via live sendme query on .40 (2026-04-13). No page 3 or 15 exists in the TFT.",
+    "nav_bar": "Page 14 (tool) is the Tools/Settings page. Most nav button taps produce generic page report events — the TFT handles navigation internally.",
+    "internal_navigations": "Many navigations are handled by TFT firmware internally without unique UART touch events. These pages are detected via 0x66 page reports.",
+    "settings_vs_tools": "There is no separate 'settings' page in the TFT. The 'tool' page (14) contains both tools and settings buttons. Previously split across 'tools' and 'settings' in old screen_map — now unified under 'tool'.",
+    "print_pages": "print=13 is the file browser, choose=10 is the source selector (local/usb/history), local=35 is local file list, usb=22 is USB file list, history=11 is print history.",
+    "calibration_pages": "herdware=27 is the calibration menu. auto=37 is auto-level, c_cail=56 is manual calibration, cutt_arco=58 is cutter calibration, cutt_cail=57 is cutter sub-cal, check=8 is check page, cutt_checking=40 is cutting check.",
+    "numpad": "Numpad on settem/extruder embeds ASCII digits before the 0x65 touch event. cid=170 is the numpad update, cid=18 is enter/confirm.",
+    "release_only_buttons": "Some buttons only fire RELEASE events, not PRESS.",
+    "missing_flow_page": "SetFlowPage uses PAGE_NAME='flow' but there is no 'flow' page in the TFT. Flow control may be part of setsp (page 33). Needs investigation.",
+    "touch_page_ids_vs_report_ids": "Touch events (0x65) may carry the same page IDs as 0x66 page reports (confirmed for home=12, settem=32). Binary voronFDM used 0x99 frame type with DIFFERENT page numbering (1-15). The binary_touch_map in manager.py uses the binary's numbering scheme."
+  }
+}

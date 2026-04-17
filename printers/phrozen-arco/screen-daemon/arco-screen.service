@@ -1,0 +1,31 @@
+[Unit]
+Description=Arco Screen Daemon (voronFDM replacement)
+Documentation=https://github.com/CepheusLabs/phrozen-arco-kalico
+After=network.target moonraker.service
+Wants=moonraker.service
+
+[Service]
+Type=simple
+User=mks
+Group=mks
+WorkingDirectory=/home/mks/phrozen-arco-kalico/screen-daemon
+# Wake UART1 from runtime suspend (runs as root via '+' prefix)
+ExecStartPre=+/bin/bash /home/mks/phrozen-arco-kalico/screen-daemon/wake-uart.sh
+
+ExecStart=/home/mks/kalico-env/bin/python -m arco_screen \
+    --port /dev/ttyS1 \
+    --config-dir /home/mks/printer_data/config/arco_screen \
+    --screen-map /home/mks/phrozen-arco-kalico/screen-daemon/screen_map.json
+Restart=always
+RestartSec=3
+
+# Allow access to serial port
+SupplementaryGroups=dialout tty
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=arco-screen
+
+[Install]
+WantedBy=multi-user.target

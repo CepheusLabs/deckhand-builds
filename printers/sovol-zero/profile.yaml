@@ -1,0 +1,55 @@
+schema_version: 1
+profile_id: sovol-zero
+profile_version: 0.0.1
+display_name: Sovol Zero
+manufacturer: Sovol
+model: Zero
+status: stub
+maintainers:
+  - { name: "Cepheus Labs", contact: "support@cepheuslabs.com" }
+
+# Placeholder profile. Hardware facts, detection rules, stock-OS inventory,
+# and flow declarations are not yet filled in. Contributions welcome.
+
+hardware:
+  architecture: null                  # TBD — likely aarch64 or armv7l
+  sbc:
+    soc: null
+    board: null
+  kinematics: null
+  build_volume_mm: null
+
+os:
+  stock:
+    distro: null
+    version: null
+  fresh_install_options: []
+
+ssh:
+  default_port: 22
+  default_credentials: []
+
+firmware:
+  choices: []
+  default_choice: null
+
+stack: {}
+mcus:   []
+screens: []
+addons: []
+
+stock_os:
+  detections: []
+  services:   []
+  files:      []
+  paths:      []
+
+wizard:
+  title: Sovol Zero Setup
+  extra_steps: []
+
+flows:
+  stock_keep:  { enabled: false }
+  fresh_flash: { enabled: false }
+
+verifiers: []

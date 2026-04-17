@@ -1,0 +1,41 @@
+# Deckhand Builds — profile registry
+#
+# This file is the index Deckhand reads at startup. It lists every
+# printer profile that ships from this repo. The Deckhand app uses it to
+# populate the "pick your printer" screen.
+#
+# Fields:
+#   id              stable identifier; matches the printers/<id>/ directory
+#   display_name    shown in the UI
+#   manufacturer
+#   model
+#   status          stub | alpha | beta | stable | deprecated
+#   directory       path within this repo to the profile
+#   latest_tag      set at release-time by CI; null on main.
+
+schema_version: 1
+
+profiles:
+  - id: phrozen-arco
+    display_name: Phrozen Arco
+    manufacturer: Phrozen
+    model: Arco
+    status: alpha
+    directory: printers/phrozen-arco
+    latest_tag: null
+
+  - id: sovol-zero
+    display_name: Sovol Zero
+    manufacturer: Sovol
+    model: Zero
+    status: stub
+    directory: printers/sovol-zero
+    latest_tag: null
+
+  - id: sovol-sv08-max
+    display_name: Sovol SV08 Max
+    manufacturer: Sovol
+    model: SV08 Max
+    status: stub
+    directory: printers/sovol-sv08-max
+    latest_tag: null

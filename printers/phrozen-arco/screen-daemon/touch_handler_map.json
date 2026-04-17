@@ -1,0 +1,223 @@
+{
+  "_notes": {
+    "source": "Disassembled from voronFDM Uart_pthread_cmd (0x1fd54, 100672 bytes)",
+    "format": "packed_value = (page_id << 8) | component_id from touch event",
+    "protocol": "TJC sends: [event_type=1] [page_id] [component_id], daemon packs into u16 for switch dispatch",
+    "page_id_mapping": "Page IDs are TFT firmware internal IDs. Need live printer 0x66 page reports to map ID -> page name. See inferred_pages below.",
+    "date": "2026-04-13"
+  },
+  "inferred_pages": {
+    "1": "filament (AMS/ChromaKit — P1 J/B/T commands, p114, E40 extrude, P2 A2)",
+    "2": "system or printing (M220 S100 speed reset, navigates to update_check)",
+    "3": "extruder_extrude (E1/E10/E20/E50 at F300 — extrude buttons)",
+    "4": "extruder_retract (E-1/E-10/E-20/E-50 at F300 — retract buttons, also navigates to homekey)",
+    "5": "system_settings (navigates to settime, G28 + park position)",
+    "6": "flow (M221 S%d flow control, flow.sp/flowdata screen updates)",
+    "7": "manual_or_temperature (SET_HEATER TARGET=220, G91 X-1 jog, navigates to choose/usb/history)",
+    "8": "printplan_or_print (navigates to printing, vis exp0, M220 S50/S100, G91 X+1 jog)",
+    "9": "setsp_and_offdet (M106 fan, setsp.sp updates, SET_GCODE_OFFSET z-adjust)",
+    "10": "setsp_and_chamber (M106 fan, setsp updates, Chamber_fan.CFAN_NUM, navigates to Chamber_fan)",
+    "11": "language_or_setup (navigates to first page, P1 B/T AMS commands, P2 A6)",
+    "12": "home (confirmed — popup2.pop2_num=18, calibration flow with G28+c_cail, various maintenance)",
+    "14": "manual_movement (G91 X/Y ±25 F7800 fast jog, G28 X, M84, P1 T1-4/B1-4 AMS, bed mesh calibrate+save)",
+    "15": "calibration_settings (page wait/popup1, G28+park, SAVE_CONFIG, page herdware/cutt_checking, P2 A3)"
+  },
+  "handlers": {
+    "0x0100": {
+      "page_id": 1, "component_id": 0,
+      "actions": ["(state check only, no GCode)"]
+    },
+    "0x0101": {
+      "page_id": 1, "component_id": 1,
+      "actions": ["Set G_language=0"]
+    },
+    "0x0104": {
+      "page_id": 1, "component_id": 4,
+      "actions": ["GCODE: P1 B%d", "GCODE: p114"]
+    },
+    "0x0106": {
+      "page_id": 1, "component_id": 6,
+      "actions": ["GCODE: P1 J%d", "GCODE: M83 G1 E40 F300", "GCODE: G28", "GCODE: P1 T%d", "GCODE: PRZ_MANUAL_WAITING", "GCODE: p114"],
+      "notes": "AMS filament change sequence — home, extrude, set tray"
+    },
+    "0x0107": {
+      "page_id": 1, "component_id": 7,
+      "actions": ["GCODE: P2 A2", "GCODE: p114", "SCREEN: EX.pic=241"],
+      "notes": "AMS mode switch"
+    },
+    "0x0200": {
+      "page_id": 2, "component_id": 0,
+      "actions": ["GCODE: M220 S100", "GCODE: SET_HEATER_TEMPERATURE HEATER=extruder TARGET=220"],
+      "notes": "Speed reset + preheat for printing"
+    },
+    "0x0201": {
+      "page_id": 2, "component_id": 1,
+      "actions": ["NAV: page update_check"]
+    },
+    "0x0300": {
+      "page_id": 3, "component_id": 0,
+      "actions": ["SCREEN: system.time.txt", "SCREEN: settime updates"],
+      "notes": "Standby timeout display update"
+    },
+    "0x0301": {
+      "page_id": 3, "component_id": 1,
+      "actions": ["GCODE: M83 G1 E1 F300"],
+      "notes": "Extrude 1mm"
+    },
+    "0x0302": {
+      "page_id": 3, "component_id": 2,
+      "actions": ["GCODE: M83 G1 E10 F300"],
+      "notes": "Extrude 10mm"
+    },
+    "0x0303": {
+      "page_id": 3, "component_id": 3,
+      "actions": ["GCODE: M83 G1 E20 F300"],
+      "notes": "Extrude 20mm"
+    },
+    "0x0304": {
+      "page_id": 3, "component_id": 4,
+      "actions": ["GCODE: M83 G1 E50 F300"],
+      "notes": "Extrude 50mm"
+    },
+    "0x0400": {
+      "page_id": 4, "component_id": 0,
+      "actions": ["NAV: page homekey", "SCREEN: homekey.t0.txt=%s"],
+      "notes": "Navigate to home key entry"
+    },
+    "0x0401": {
+      "page_id": 4, "component_id": 1,
+      "actions": ["GCODE: M83 G1 E-1 F300"],
+      "notes": "Retract 1mm"
+    },
+    "0x0402": {
+      "page_id": 4, "component_id": 2,
+      "actions": ["GCODE: M83 G1 E-10 F300"],
+      "notes": "Retract 10mm"
+    },
+    "0x0403": {
+      "page_id": 4, "component_id": 3,
+      "actions": ["GCODE: M83 G1 E-20 F300"],
+      "notes": "Retract 20mm"
+    },
+    "0x0404": {
+      "page_id": 4, "component_id": 4,
+      "actions": ["GCODE: M83 G1 E-50 F300"],
+      "notes": "Retract 50mm"
+    },
+    "0x0500": {
+      "page_id": 5, "component_id": 0,
+      "actions": ["SCREEN: settime updates", "NAV: page settime"],
+      "notes": "Open standby timeout settings"
+    },
+    "0x0501": {
+      "page_id": 5, "component_id": 1,
+      "actions": ["GCODE: G28", "GCODE: G90 G1 X310 Y290 F8000"],
+      "notes": "Home all + park at service position"
+    },
+    "0x0600": {
+      "page_id": 6, "component_id": 0,
+      "actions": ["GCODE: M220 S100", "GCODE: M221 S%d", "SCREEN: flow.flowdata.txt=%d%%", "SCREEN: flow.sp.val=%d"],
+      "notes": "Flow rate adjustment with display update"
+    },
+    "0x0700": {
+      "page_id": 7, "component_id": 0,
+      "actions": ["GCODE: SET_HEATER_TEMPERATURE HEATER=extruder TARGET=220", "GCODE: M220 S100"],
+      "notes": "Preheat nozzle + reset speed"
+    },
+    "0x0701": {
+      "page_id": 7, "component_id": 1,
+      "actions": ["GCODE: G91 G1 X-1 F600 G90"],
+      "notes": "Jog X -1mm"
+    },
+    "0x0707": {
+      "page_id": 7, "component_id": 7,
+      "actions": ["NAV: page choose", "NAV: page usb", "SCREEN: usb.usbno.pic=151", "NAV: page history", "GCODE: BED_MESH_CALIBRATE PROFILE=phrozen"],
+      "notes": "Multi-function: file source select, bed mesh calibrate"
+    },
+    "0x0800": {
+      "page_id": 8, "component_id": 0,
+      "actions": ["NAV: page printing", "VIS: vis exp0,1", "NAV: page home", "GCODE: M220 S50", "GCODE: M220 S100"],
+      "notes": "Print start/navigation with speed presets"
+    },
+    "0x0801": {
+      "page_id": 8, "component_id": 1,
+      "actions": ["GCODE: G91 G1 X1 F600 G90"],
+      "notes": "Jog X +1mm"
+    },
+    "0x0900": {
+      "page_id": 9, "component_id": 0,
+      "actions": ["GCODE: M106 S%.0f", "SCREEN: setsp.sp.val=%d", "SCREEN: setsp.spdata.txt=%d%%"],
+      "notes": "Fan speed + speed display update"
+    },
+    "0x0901": {
+      "page_id": 9, "component_id": 1,
+      "actions": ["SCREEN: offdet.z_offset.txt=%0.3f", "GCODE: SET_GCODE_OFFSET Z_ADJUST=+%0.3f MOVE=1", "GCODE: SET_GCODE_OFFSET Z_ADJUST=-%0.3f MOVE=1"],
+      "notes": "Z-offset adjustment (both up and down in same handler, direction from screen state)"
+    },
+    "0x0A00": {
+      "page_id": 10, "component_id": 0,
+      "actions": ["GCODE: M106 S%.0f", "SCREEN: setsp.sp.val=%d", "SCREEN: setsp.spdata.txt=%d%%", "SCREEN: Chamber_fan.CFAN_NUM.val=%d", "NAV: page Chamber_fan"],
+      "notes": "Fan control + chamber fan page"
+    },
+    "0x0A01": {
+      "page_id": 10, "component_id": 1,
+      "actions": ["GCODE: G91 G1 X-50 F600 G90", "GCODE: BED_MESH_CALIBRATE PROFILE=phrozen", "SCREEN: phrozen.txt=%.6f", "SCREEN: data%d.txt=%.2f"],
+      "notes": "Large X jog + bed mesh display"
+    },
+    "0x0B00": {
+      "page_id": 11, "component_id": 0,
+      "actions": ["NAV: page first"],
+      "notes": "Navigate to first-run setup"
+    },
+    "0x0B01": {
+      "page_id": 11, "component_id": 1,
+      "actions": ["SCREEN: EX.pic=241/240", "GCODE: P1 B%d", "GCODE: P2 A6", "GCODE: P1 T%d", "VIS: vis XZ,0"],
+      "notes": "AMS/ChromaKit control with picture toggle"
+    },
+    "0x0C00": {
+      "page_id": 12, "component_id": 0,
+      "actions": ["NAV: page popup2", "SCREEN: popup2.pop2_num.val=18"],
+      "notes": "Home page: show network/cloud popup"
+    },
+    "0x0C03": {
+      "page_id": 12, "component_id": 3,
+      "actions": ["GCODE: G91 G1 Z10 G90", "GCODE: G28 Y", "GCODE: G28 X", "NAV: page c_cail", "SCREEN: c_cail.c_cail_num.val=1", "GCODE: G90 G1 X149 Y290 F4000", "GCODE: G90 G1 X149 Y321 F4000", "GCODE: G90 G1 X124 Y321 F4000", "GCODE: G91 G1 Z10 F600 G90", "GCODE: M83 G1 E8 F300"],
+      "notes": "Home page calibration button: lift Z, home, navigate to calibration, move to positions"
+    },
+    "0x0C05": {
+      "page_id": 12, "component_id": 5,
+      "actions": ["GCODE: G91 G1 X-0.5 F6000 G90", "GCODE: G91 G1 X0.5 F6000 G90", "NAV: page NoButLoad", "GCODE: M83 G1 E-10 F300", "GCODE: M106 S255", "GCODE: G1 X149 Y321 F8000", "GCODE: M106 S0", "GCODE: G28", "GCODE: M84"],
+      "notes": "Home page maintenance: nozzle wipe sequence with fan on/off"
+    },
+    "0x0E00": {
+      "page_id": 14, "component_id": 0,
+      "actions": ["NAV: page popup2", "SCREEN: popup2.pop2_num.val=16"],
+      "notes": "Show popup notification type 16"
+    },
+    "0x0E01": {
+      "page_id": 14, "component_id": 1,
+      "actions": ["GCODE: G91 G1 X-25 F7800 G90", "GCODE: G91 G1 Y-25 F7800 G90", "GCODE: G28 X", "GCODE: G91 G1 X25 F7800 G90", "GCODE: G91 G1 Y25 F7800 G90", "GCODE: M84", "GCODE: P1 T1/T2/T3/T4", "GCODE: P1 B1/B2/B3/B4", "GCODE: G90 M140 S60 M104 S140 G28 G90 M106 S255 BED_MESH_CLEAR BED_MESH_CALIBRATE PROFILE=phrozen SAVE_CONFIG"],
+      "notes": "Manual page: multi-function — fast XY jog, AMS tray select, full auto-calibrate sequence"
+    },
+    "0x0F00": {
+      "page_id": 15, "component_id": 0,
+      "actions": ["NAV: page wait", "NAV: page popup1", "SCREEN: popup1.pop_num.val=25"],
+      "notes": "Show wait page or confirmation popup"
+    },
+    "0x0F01": {
+      "page_id": 15, "component_id": 1,
+      "actions": ["GCODE: G91 G1 Z10 G90", "GCODE: G28 Y", "GCODE: G28 X", "GCODE: G90 G1 X310 Y260 F6000"],
+      "notes": "Lift Z, home XY, park at service position"
+    },
+    "0x0F02": {
+      "page_id": 15, "component_id": 2,
+      "actions": ["GCODE: G91 G1 X-50 F600 G90", "NAV: page wait", "GCODE: SAVE_CONFIG", "NAV: page herdware", "VIS: vis cut1_pic,1", "GCODE: SET_HEATER_TEMPERATURE HEATER=extruder TARGET=0", "GCODE: M84", "GCODE: M83 G1 E30 F300", "GCODE: G91 G1 X±1 F600 G90"],
+      "notes": "Save config, disable heater, navigate to hardware page"
+    },
+    "0x0F04": {
+      "page_id": 15, "component_id": 4,
+      "actions": ["NAV: page cutt_checking", "GCODE: G28 Y", "GCODE: G28 X", "GCODE: P2 A3", "NAV: page popup2", "SCREEN: pop2_num.val=25", "GCODE: SET_HEATER_TEMPERATURE HEATER=extruder TARGET=220"],
+      "notes": "Start cutting check: home, send P2 A3, preheat nozzle"
+    }
+  }
+}
