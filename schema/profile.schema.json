@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cepheuslabs.com/deckhand/profile.schema.json",
+  "title": "Deckhand printer profile",
+  "description": "Schema for profile.yaml files under printers/<id>/. Consumed by Deckhand's profile parser.",
+  "type": "object",
+  "required": ["schema_version", "profile_id", "profile_version", "display_name", "status"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "profile_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+    "profile_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "display_name": {"type": "string", "minLength": 1},
+    "manufacturer": {"type": "string"},
+    "model": {"type": "string"},
+    "status": {
+      "type": "string",
+      "enum": ["stub", "alpha", "beta", "stable", "deprecated"]
+    },
+    "maintainers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string"},
+          "contact": {"type": "string"}
+        }
+      }
+    },
+    "compatible_with": {
+      "type": "object",
+      "properties": {
+        "firmware_variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "display_name"],
+            "properties": {
+              "id": {"type": "string"},
+              "display_name": {"type": "string"},
+              "notes": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "required_hosts": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Hosts this profile will contact during install. Used for batch approval."
+    },
+    "hardware": {
+      "type": "object",
+      "properties": {
+        "architecture": {"type": ["string", "null"]},
+        "sbc": {
+          "type": ["object", "null"],
+          "properties": {
+            "soc": {"type": ["string", "null"]},
+            "board": {"type": ["string", "null"]},
+            "emmc_size_bytes": {"type": ["integer", "null"]}
+          }
+        },
+        "kinematics": {"type": ["string", "null"]},
+        "build_volume_mm": {
+          "type": ["object", "null"],
+          "properties": {
+            "x": {"type": "number"},
+            "y": {"type": "number"},
+            "z": {"type": "number"}
+          }
+        },
+        "steppers": {"type": "array"},
+        "sensors": {"type": "array"},
+        "features": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "os": {
+      "type": "object",
+      "properties": {
+        "stock": {
+          "type": ["object", "null"],
+          "properties": {
+            "distro": {"type": ["string", "null"]},
+            "version": {"type": ["string", "null"]},
+            "codename": {"type": ["string", "null"]},
+            "python": {"type": ["string", "null"]},
+            "notes": {"type": ["string", "null"]}
+          }
+        },
+        "fresh_install_options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "display_name"],
+            "properties": {
+              "id": {"type": "string"},
+              "display_name": {"type": "string"},
+              "url": {"type": "string"},
+              "sha256": {"type": ["string", "null"]},
+              "size_bytes_approx": {"type": ["integer", "null"]},
+              "recommended": {"type": "boolean"},
+              "architecture": {"type": "string"},
+              "notes": {"type": "string"}
+            }
+          }
+        },
+        "boot_mode": {"type": "string", "enum": ["mbr", "gpt"]}
+      }
+    },
+    "ssh": {
+      "type": "object",
+      "properties": {
+        "default_port": {"type": "integer"},
+        "default_credentials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["user"],
+            "properties": {
+              "user": {"type": "string"},
+              "password": {"type": "string"},
+              "key_path": {"type": "string"}
+            }
+          }
+        },
+        "recommended_user_after_install": {"type": "string"}
+      }
+    },
+    "firmware": {
+      "type": "object",
+      "properties": {
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "display_name", "repo"],
+            "properties": {
+              "id": {"type": "string"},
+              "display_name": {"type": "string"},
+              "description": {"type": "string"},
+              "repo": {"type": "string", "format": "uri"},
+              "ref": {"type": "string"},
+              "install_path": {"type": "string"},
+              "venv_path": {"type": "string"},
+              "python_min": {"type": "string"},
+              "recommended": {"type": "boolean"}
+            }
+          }
+        },
+        "default_choice": {"type": "string"},
+        "replace_stock_in_place": {"type": "boolean"},
+        "snapshot_before_replace": {"type": "boolean"}
+      }
+    },
+    "stack": {
+      "type": "object",
+      "properties": {
+        "moonraker": {"type": "object"},
+        "webui": {"type": "object"},
+        "kiauh": {"type": "object"},
+        "crowsnest": {"type": "object"}
+      }
+    },
+    "mcus": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "display_name": {"type": "string"},
+          "chip": {"type": "string"},
+          "transport": {"type": "object"}
+        }
+      }
+    },
+    "screens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "display_name": {"type": "string"},
+          "source_kind": {"type": "string"},
+          "status": {"type": "string"},
+          "recommended": {"type": "boolean"}
+        }
+      }
+    },
+    "addons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "kind": {"type": "string"},
+          "display_name": {"type": "string"}
+        }
+      }
+    },
+    "stock_os": {
+      "type": "object",
+      "properties": {
+        "detections": {"type": "array"},
+        "services": {"type": "array"},
+        "files": {"type": "array"},
+        "paths": {"type": "array"}
+      }
+    },
+    "wizard": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string"},
+        "steps_override": {"type": "object"},
+        "extra_steps": {"type": "array"}
+      }
+    },
+    "flows": {
+      "type": "object",
+      "properties": {
+        "stock_keep": {"$ref": "#/$defs/flow_spec"},
+        "fresh_flash": {"$ref": "#/$defs/flow_spec"}
+      }
+    },
+    "verifiers": {"type": "array"}
+  },
+  "$defs": {
+    "flow_spec": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "preconditions": {"type": "array"},
+        "steps": {"type": "array"}
+      }
+    }
+  }
+}
