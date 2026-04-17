@@ -32,14 +32,14 @@ hardware:
   kinematics: corexy
   build_volume_mm: { x: 330, y: 330, z: 303 }
   steppers:
-    - { axis: x,        driver: tmc5160, mode: spi }
-    - { axis: y,        driver: tmc5160, mode: spi }
-    - { axis: z,        driver: tmc2209, mode: uart, count: 2 }
+    - { axis: x, driver: tmc5160, mode: spi }
+    - { axis: y, driver: tmc5160, mode: spi }
+    - { axis: z, driver: tmc2209, mode: uart, count: 2 }
     - { axis: extruder, driver: tmc2209, mode: uart }
   sensors:
     - { kind: thermistor, name: extruder, source: ntc }
-    - { kind: thermistor, name: bed,      source: ntc }
-    - { kind: thermistor, name: chamber,  source: ntc }
+    - { kind: thermistor, name: bed, source: ntc }
+    - { kind: thermistor, name: chamber, source: ntc }
     - { kind: adc, name: filament, pin: "MKS_THR:PA2" }
   features:
     - motorized_probe_deploy
@@ -303,7 +303,7 @@ stock_os:
           today it's an open remote-access channel reachable by anyone with
           the server + token.
         options:
-          - { id: keep,   label: Keep }
+          - { id: keep, label: Keep }
           - { id: remove, label: Remove (recommended) }
         recommended: remove
 
@@ -314,8 +314,8 @@ stock_os:
         kind: script
         path: "/home/mks/KlipperScreen/scripts/KlipperScreen-start.sh"
       roles:
-        - { id: hdl_cloud_gateway,     description: "Phones home to hdlcontrol.com for LED control via Zigbee." }
-        - { id: uds_for_voronfdm,      description: "Local /tmp/UNIX.domain socket voronFDM connects to on startup." }
+        - { id: hdl_cloud_gateway, description: "Phones home to hdlcontrol.com for LED control via Zigbee." }
+        - { id: uds_for_voronfdm, description: "Local /tmp/UNIX.domain socket voronFDM connects to on startup." }
         - { id: chromakit_flash_relay, description: "Transient serial relay used by flash-chromakit.sh during ChromaKit firmware flashing." }
       default_action: derived
       wizard:
@@ -329,8 +329,8 @@ stock_os:
           transiently from flash-chromakit.sh — the question is what to do
           about the daemon.
         options:
-          - { id: keep,   label: Keep running (phones home, LEDs via HDL app) }
-          - { id: stub,   label: Stub (satisfies voronFDM, no phone-home) }
+          - { id: keep, label: Keep running (phones home, LEDs via HDL app) }
+          - { id: stub, label: Stub (satisfies voronFDM, no phone-home) }
           - { id: remove, label: Remove entirely }
         default_rules:
           - when: selected(screen, voronFDM)
@@ -361,7 +361,7 @@ stock_os:
           slicer / phone app for LAN discovery + gcode upload. Useful for
           some users; attack surface for security-conscious ones.
         options:
-          - { id: keep,    label: "Keep (recommended if you use MKS tools)" }
+          - { id: keep, label: "Keep (recommended if you use MKS tools)" }
           - { id: disable, label: "Disable (security-focused)" }
 
     - id: makerbase_net_mods
@@ -375,7 +375,7 @@ stock_os:
           /etc/. Handy for first-time setup; physical-access takeover
           vector afterward.
         options:
-          - { id: keep,    label: "Keep" }
+          - { id: keep, label: "Keep" }
           - { id: disable, label: "Disable (recommended after wifi is set)" }
 
     - id: makerbase_shutdown
@@ -554,15 +554,15 @@ wizard:
         stock install.)
       options:
         - { id: flash, label: Flash }
-        - { id: skip,  label: Skip (keep current) }
+        - { id: skip, label: Skip (keep current) }
 
 flows:
   stock_keep:
     enabled: true
     preconditions:
-      - { kind: ssh_ok,         severity: block }
+      - { kind: ssh_ok, severity: block }
       - { kind: free_space_min, mountpoint: "/home/mks", bytes: 1500000000, severity: block }
-      - { kind: not_printing,   severity: warn }
+      - { kind: not_printing, severity: warn }
     steps:
       - id: backup_prompt
         kind: prompt
@@ -574,7 +574,7 @@ flows:
         actions:
           - { id: backup_now, label: Back up now (recommended) }
           - { id: i_have_one, label: I already have a backup }
-          - { id: skip,       label: Skip (not recommended) }
+          - { id: skip, label: Skip (not recommended) }
       - id: stop_services
         kind: ssh_commands
         commands:
@@ -608,7 +608,7 @@ flows:
         components:
           - moonraker
           - "{{stack.webui.selected}}"
-          - kiauh?
+          - kiauh
           - crowsnest
       - id: apply_services_decisions
         kind: apply_services
@@ -668,7 +668,7 @@ flows:
         kind: install_firmware
       - id: install_stack
         kind: install_stack
-        components: [moonraker, "{{stack.webui.selected}}", kiauh?, crowsnest]
+        components: [moonraker, "{{stack.webui.selected}}", kiauh, crowsnest]
       - id: install_klipper_extras
         kind: link_extras
         sources:

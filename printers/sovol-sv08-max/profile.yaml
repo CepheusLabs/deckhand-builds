@@ -34,22 +34,22 @@ firmware:
   default_choice: null
 
 stack: {}
-mcus:   []
+mcus: []
 screens: []
 addons: []
 
 stock_os:
   detections: []
-  services:   []
-  files:      []
-  paths:      []
+  services: []
+  files: []
+  paths: []
 
 wizard:
   title: Sovol SV08 Max Setup
   extra_steps: []
 
 flows:
-  stock_keep:  { enabled: false }
+  stock_keep: { enabled: false }
   fresh_flash: { enabled: false }
 
 verifiers: []
