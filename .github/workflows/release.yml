@@ -1,0 +1,72 @@
+name: Release
+
+# Date-based CalVer matching Deckhand's scheme.
+#   VERSION = YY.M.D (UTC, not zero-padded)
+#   BUILD   = git rev-list --count HEAD
+#   TAG     = v<VERSION>-<BUILD>
+#
+# On push to main: compute + tag + publish a GitHub Release. No
+# installers to build — Deckhand fetches profile content directly from
+# the tagged commit at install time.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch/tag/SHA to tag (default: main)'
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag and release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
+
+      - id: v
+        shell: bash
+        run: |
+          VERSION=$(date -u +"%y.%-m.%-d")
+          BUILD=$(git rev-list --count HEAD)
+          TAG="v${VERSION}-${BUILD}"
+          REF=$(git rev-parse HEAD)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD"     >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "ref=$REF"         >> "$GITHUB_OUTPUT"
+          echo "::notice::deckhand-builds $VERSION+$BUILD ($TAG at $REF)"
+
+      - name: Create tag
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          REF: ${{ steps.v.outputs.ref }}
+        run: |
+          git config user.name  'cepheus-labs-bot'
+          git config user.email 'support@cepheuslabs.com'
+          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists — reusing."
+          else
+            git tag -a "$TAG" "$REF" -m "deckhand-builds $TAG"
+            git push origin "$TAG"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          name: deckhand-builds ${{ steps.v.outputs.version }}+${{ steps.v.outputs.build }}
+          draft: false
+          generate_release_notes: true
