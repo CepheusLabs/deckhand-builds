@@ -88,6 +88,11 @@ jobs:
           failed = 0
           for profile_path in sorted(pathlib.Path("printers").glob("*/profile.yaml")):
               doc = yaml.safe_load(profile_path.read_text())
+              # Stub profiles are intentionally incomplete placeholders —
+              # skip strict validation until they're promoted to alpha.
+              if (doc or {}).get("status") == "stub":
+                  print(f"skip (stub): {profile_path}")
+                  continue
               errors = sorted(validator.iter_errors(doc), key=lambda e: e.path)
               if errors:
                   failed += 1
