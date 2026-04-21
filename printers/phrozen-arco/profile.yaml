@@ -83,10 +83,16 @@ firmware:
   choices:
     - id: kalico
       display_name: Kalico
-      description: |
-        Community-maintained Klipper fork (formerly Danger Klipper). Monthly
-        rebases, adds danger_options, gcode_shell_command, trad_rack, and
-        better dockable probe support. Recommended.
+      description: >
+        Community-maintained Klipper fork (formerly Danger Klipper).
+        Picks up fixes faster than upstream and ships a few extras that
+        matter on this machine: gcode_shell_command (lets your macros
+        shell out - handy for timelapses, notifications, OTA hooks),
+        better input-shaper calibration against the Arco's toolhead
+        accelerometer, improved ADC filament-runout handling for the
+        MKS_THR filament sensor, and looser safety rails
+        (danger_options) so you can unjam or manually extrude without
+        arguing with the firmware. Recommended.
       repo: https://github.com/KalicoCrew/kalico
       ref: main
       install_path: "~/kalico"
@@ -94,8 +100,15 @@ firmware:
       python_min: "3.9"
       recommended: true
     - id: klipper
-      display_name: Klipper (modern)
-      description: Upstream Klipper3D/klipper, latest master.
+      display_name: Klipper (mainline)
+      description: >
+        The reference implementation from Klipper3d. Every tutorial,
+        forum answer, and slicer plugin targets this build, so it's the
+        safest pick if you're new to Klipper or want the smallest
+        surprise surface. Changes land slowly, which means fewer
+        regressions but also slower uptake of quality-of-life features.
+        Works perfectly well on the Arco; you just won't get the
+        Kalico-only conveniences listed above.
       repo: https://github.com/Klipper3d/klipper
       ref: master
       install_path: "~/klipper"
@@ -275,19 +288,37 @@ addons:
 stock_os:
   detections:
     - kind: file_exists
+      label: "Phrozen helper binaries are installed"
       path: "/home/mks/klipper/klippy/extras/phrozen_dev/frp-oms/phrozen_master"
       required: true
+      note: >
+        Phrozen's closed-source gateway binary ships in every stock
+        image. Its presence confirms this is an Arco and not a plain
+        MKS-Pi or Elegoo-flashed board.
     - kind: file_exists
+      label: "Phrozen factory installer script is still here"
       path: "/home/mks/phrozen_dir/phrozen_install.sh"
       required: true
+      note: >
+        The first-boot installer script stock units leave in place.
+        Used as a second signal that we're looking at an unmodified
+        Arco image.
     - kind: file_contains
+      label: "System hostname matches the MKS Pi SBC"
       path: "/etc/hostname"
       pattern: "mkspi"
       required: false
+      note: >
+        Stock Armbian sets the hostname to `mkspi`. A different hostname
+        just means the owner changed it - not a blocker.
     - kind: process_running
+      label: "Phrozen's stock screen daemon (voronFDM) is running"
       name: voronFDM
       required: false
-      note: Confirms Phrozen boot path vs. MKS boot path (mksclient).
+      note: >
+        Confirms the printer booted into the Phrozen path (not the MKS
+        `mksclient` alternative). Missing is fine if you already
+        replaced the screen daemon.
 
   services:
     - id: frpc
