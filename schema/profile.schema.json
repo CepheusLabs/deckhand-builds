@@ -150,7 +150,29 @@
         },
         "default_choice": {"type": "string"},
         "replace_stock_in_place": {"type": "boolean"},
-        "snapshot_before_replace": {"type": "boolean"}
+        "snapshot_before_replace": {"type": "boolean"},
+        "requires_python_rebuild_if": {
+          "type": "array",
+          "description": "Conditional rules that trigger a Python-from-source rebuild before firmware install. Evaluated in order; first match wins.",
+          "items": {
+            "type": "object",
+            "required": ["condition", "action"],
+            "properties": {
+              "condition": {
+                "type": "string",
+                "description": "DSL predicate expression (e.g. 'os_python_below(firmware.selected.python_min)')."
+              },
+              "action": {
+                "type": "string",
+                "description": "Machine-readable action tag. Today only 'build-python-from-source' is consumed; additional tags may be added over time."
+              },
+              "script": {
+                "type": "string",
+                "description": "Path (repo-relative) to a shell script the Deckhand installer runs over SSH when the condition matches."
+              }
+            }
+          }
+        }
       }
     },
     "stack": {

@@ -61,13 +61,41 @@ jobs:
           sys.exit(0 if ok else 1)
           PY
 
-  # Once the validator binary from CepheusLabs/deckhand is published as a
-  # release asset, this job downloads it and runs `deckhand-profile-lint`
-  # against every profile.yaml.
+  # Validate every profile.yaml against schema/profile.schema.json using
+  # the Python `jsonschema` reference implementation (Draft 2020-12).
+  # No external binary needed — keeps this repo's CI self-contained.
   schema-validate:
     name: Validate against profile.schema.json
     runs-on: ubuntu-latest
-    if: false
     steps:
       - uses: actions/checkout@v5
-      - run: echo "enable once the schema validator is published"
+
+      - name: Install validator deps
+        run: pipx install --include-deps 'jsonschema[format]' && pip install pyyaml
+
+      - name: Validate every profile.yaml
+        run: |
+          python3 <<'PY'
+          import json, pathlib, sys
+          import yaml
+          import jsonschema
+          from jsonschema import Draft202012Validator
+
+          schema = json.loads(pathlib.Path("schema/profile.schema.json").read_text())
+          Draft202012Validator.check_schema(schema)
+          validator = Draft202012Validator(schema)
+
+          failed = 0
+          for profile_path in sorted(pathlib.Path("printers").glob("*/profile.yaml")):
+              doc = yaml.safe_load(profile_path.read_text())
+              errors = sorted(validator.iter_errors(doc), key=lambda e: e.path)
+              if errors:
+                  failed += 1
+                  print(f"::error file={profile_path}::{len(errors)} schema error(s):")
+                  for err in errors:
+                      path = "/".join(str(p) for p in err.absolute_path) or "<root>"
+                      print(f"  - at '{path}': {err.message}")
+              else:
+                  print(f"ok: {profile_path}")
+          sys.exit(1 if failed else 0)
+          PY
