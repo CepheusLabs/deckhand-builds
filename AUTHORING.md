@@ -1,7 +1,7 @@
 # Authoring a Deckhand printer profile
 
 This guide is for contributors adding or maintaining a printer profile.
-End users never see this file — they use Deckhand's wizard, which reads the
+End users never see this file - they use Deckhand's wizard, which reads the
 profile YAML and asks the right questions.
 
 > **Reading order:** if you're adding a new printer, read this top to bottom.
@@ -37,11 +37,11 @@ deckhand-builds/
         └── profile.yaml                 # stub
 ```
 
-## The profile manifest — `profile.yaml`
+## The profile manifest - `profile.yaml`
 
 Every printer profile has a `profile.yaml` at its root. All other files
 (configs, scripts, firmware) are referenced **by relative path** from that
-YAML. Deckhand never guesses — if it's not declared, it's not touched.
+YAML. Deckhand never guesses - if it's not declared, it's not touched.
 
 ### Top-level skeleton
 
@@ -105,7 +105,7 @@ hardware:
   sbc:
     soc: rockchip-rk3328
     board: mks-pi                         # human-friendly name shown in UI
-    emmc_size_bytes: 7818182656           # optional — for flash-flow checks
+    emmc_size_bytes: 7818182656           # optional - for flash-flow checks
   kinematics: corexy                       # corexy | cartesian | delta | scara
   build_volume_mm: { x: 330, y: 330, z: 303 }
   steppers:
@@ -168,7 +168,7 @@ os:
 
 ## SSH
 
-Credentials Deckhand tries automatically. `first_matching_wins` — first
+Credentials Deckhand tries automatically. `first_matching_wins` - first
 successful auth gets used. If none match, the wizard prompts.
 
 ```yaml
@@ -251,9 +251,9 @@ stack:
         asset_pattern: "mainsail.zip"
         install_path: "~/mainsail"
         default_port: 81
-    default_choices: [fluidd]                 # array — user can pick multiple
+    default_choices: [fluidd]                 # array - user can pick multiple
     allow_multiple: true                      # show "Both" card
-    allow_none: true                          # show "Neither — advanced" option
+    allow_none: true                          # show "Neither - advanced" option
     force_choice: null                        # set to an id to skip the screen
   kiauh:
     repo: https://github.com/dw-0/kiauh
@@ -262,7 +262,7 @@ stack:
     default_install: true                     # offer with pre-selected Yes
     wizard:
       explainer: |
-        KIAUH is the Klipper Installation And Update Helper — an interactive
+        KIAUH is the Klipper Installation And Update Helper - an interactive
         menu you run over SSH that lets you install, update, remove, and
         troubleshoot every piece of the Klipper stack. Deckhand handles your
         first-install; KIAUH handles tweaks you may want later.
@@ -329,7 +329,7 @@ Screen daemon options the wizard offers in the screen step.
 ```yaml
 screens:
   - id: arco_screen
-    display_name: arco_screen (OSS — recommended)
+    display_name: arco_screen (OSS - recommended)
     source_kind: bundled
     source_path: ./screen-daemon/           # in this profile dir
     service_name: arco-screen
@@ -353,7 +353,7 @@ screens:
     notes: |
       Works well but can't be updated or audited. Bound to the specific
       TJC screen firmware shipped with the printer.
-  # mksclient intentionally NOT offered — we don't understand it well enough.
+  # mksclient intentionally NOT offered - we don't understand it well enough.
 ```
 
 ---
@@ -394,7 +394,7 @@ addons:
 
 ---
 
-## Stock OS — detections
+## Stock OS - detections
 
 ### What is detection?
 
@@ -411,11 +411,11 @@ match.
 
 **Matching rule.** A profile matches if **all of its `required: true`
 detections pass**. `required: false` detections don't gate matching but
-they add confidence — used to disambiguate when multiple profiles claim a
+they add confidence - used to disambiguate when multiple profiles claim a
 match.
 
 If zero profiles match, Deckhand prompts the user to pick one manually or
-to pick "unsupported printer" (which disables flow A — only fresh-flash
+to pick "unsupported printer" (which disables flow A - only fresh-flash
 works on unknown hardware).
 
 If more than one profile claims a match with equal required-detection
@@ -433,7 +433,7 @@ also passing, and if that's still a tie, shows the user a picker.
 | `systemd_unit_enabled` | `unit` | `systemctl is-enabled <unit>` returns enabled |
 | `command_stdout_matches` | `command`, `pattern` | Running the shell command produces stdout matching the pattern |
 
-Adding a new detection kind is a Deckhand release (not a profile change) —
+Adding a new detection kind is a Deckhand release (not a profile change) -
 profile authors can request new kinds via issues in the `deckhand` repo.
 
 ### Example
@@ -459,7 +459,7 @@ stock_os:
 
 ---
 
-## Stock services — inventory
+## Stock services - inventory
 
 Each service the wizard might toggle. Drives question generation and the
 review screen.
@@ -518,7 +518,7 @@ stock_os:
       display_name: Phrozen OTA stack (phrozen_slave_ota + ota_control)
       process_pattern: "phrozen_slave_ota|ota_control"
       default_action: remove
-      wizard: none                          # no question — always removed
+      wizard: none                          # no question - always removed
       note: |
         Not used by Kalico/Klipper/Moonraker updates. ChromaKit MCU flashing
         still works via flash-chromakit.sh which uses the binaries on demand.
@@ -572,7 +572,7 @@ stock_os:
 
 ---
 
-## Leftover files — inventory
+## Leftover files - inventory
 
 Per-file decisions with helper text. The wizard generates a checkbox list.
 
@@ -676,7 +676,7 @@ stock_os:
 Profiles can reorder, rename, replace, or insert any wizard step. Deckhand
 ships a default step set; profiles declare an override that entirely
 supersedes the default if present. Most profiles will only need small
-tweaks — the default is a good starting point.
+tweaks - the default is a good starting point.
 
 ### Default step set (what Deckhand ships)
 
@@ -741,7 +741,7 @@ wizard:
 | `choose_many` | Checkbox list |
 | `text_input` | Single text field (stored as a decision variable) |
 | `confirm` | Modal warning with explicit opt-in checkboxes |
-| `run_script` | Executes a profile-provided script (SSH) — for advanced flows |
+| `run_script` | Executes a profile-provided script (SSH) - for advanced flows |
 
 The `builtin:` entries reference Deckhand-native screens; the custom `id:`
 entries are defined inline in the profile. Decisions made in custom steps
@@ -754,7 +754,7 @@ step's `id`.
 
 Fields like `when:` on custom wizard steps, `default_rules[].when` inside
 service declarations, and flow step `kind: conditional` use a small
-declarative expression DSL. Profiles never ship code — they compose
+declarative expression DSL. Profiles never ship code - they compose
 **Deckhand-registered predicates** with boolean operators.
 
 ### Grammar
@@ -788,7 +788,7 @@ literal.
 | `decision_made(path)` | A decision at `path` has been recorded (exists) |
 
 New predicates added by Deckhand releases; profiles can't define their own.
-This is the safety boundary — profiles are pure data, never execute code.
+This is the safety boundary - profiles are pure data, never execute code.
 
 ### Examples
 
@@ -873,11 +873,11 @@ Future<ServiceAction> decide(ScriptContext ctx) async {
 **Review expectation.** Because scripts execute on the user's machine
 during install, they go through the same PR review process as any other
 contribution. Deckhand ships a `flutter test` integration that executes
-every script against fixtures in the profile's `scripts/test/` directory —
+every script against fixtures in the profile's `scripts/test/` directory -
 CI fails if scripts don't have tests, if scripts reach outside the sandbox
 (verified by static analysis), or if tests don't pass.
 
-**When to use scripts vs. predicates.** Prefer predicates when you can —
+**When to use scripts vs. predicates.** Prefer predicates when you can -
 they're declarative, inspectable, and safe by construction. Use scripts
 only when the decision logic genuinely exceeds boolean composition of
 predicate calls (rare in practice). If you find yourself wanting a new
@@ -887,7 +887,7 @@ predicate rather than scripting it.
 
 ---
 
-## Flow A — stock-keep
+## Flow A - stock-keep
 
 Declares the sequence of operations for transforming a stock install
 in-place. Many fields are printer-specific, but the ordering is common.
@@ -904,7 +904,7 @@ flows:
         bytes: 1500000000                   # ~1.5 GB
         severity: block
       - kind: not_printing                  # moonraker safety check
-        severity: warn                      # warn only — user decides to proceed
+        severity: warn                      # warn only - user decides to proceed
     steps:
       - id: backup_prompt
         kind: prompt
@@ -956,7 +956,7 @@ flows:
 
 ---
 
-## Flow B — fresh-flash
+## Flow B - fresh-flash
 
 ```yaml
 flows:
@@ -1055,7 +1055,7 @@ Template engine is Mustache-style (no logic, just substitution).
 
 ## Schema versioning
 
-- `schema_version: 1` — initial.
+- `schema_version: 1` - initial.
 - Breaking changes bump major. Deckhand supports current + one previous.
 - Add new optional fields freely at the same major.
 
@@ -1074,7 +1074,7 @@ stub  →  alpha  →  beta  →  stable
 | `stub` | Exists as a placeholder. Core fields missing. Not installable. | Hidden by default. Settings toggle "show stubs" for contributors. |
 | `alpha` | Installable but untested or known-rough. Flash flows may be broken. | Shown with an "alpha" badge and a warning pre-install. |
 | `beta` | Installable and validated on at least one real unit. Minor issues possible. | Shown with a "beta" badge. |
-| `stable` | Validated across the expected hardware variants. | Default — no badge. |
+| `stable` | Validated across the expected hardware variants. | Default - no badge. |
 | `deprecated` | Profile is maintained only for users who already installed it. No new installs encouraged. | Shown dimmed with a "deprecated" note and a link to the recommended alternative. |
 
 ## Contributing a new printer
@@ -1088,4 +1088,4 @@ stub  →  alpha  →  beta  →  stable
    hardware. Each promotion is a separate PR documenting what you verified.
 
 A `stub` profile that says "I know this printer exists but I haven't done
-the work yet" is valid and valuable — it tells contributors where to start.
+the work yet" is valid and valuable - it tells contributors where to start.

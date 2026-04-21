@@ -7,7 +7,7 @@ time. See [`AUTHORING.md`](AUTHORING.md) for the full schema.
 
 This repo follows Deckhand's date-based CalVer:
 
-- **Version**: `YY.M.D` (today, UTC, not zero-padded — e.g. `26.4.18`)
+- **Version**: `YY.M.D` (today, UTC, not zero-padded - e.g. `26.4.18`)
 - **Build number**: total `git rev-list --count HEAD`
 - **Tag**: `v<VERSION>-<BUILD>` (e.g. `v26.4.18-214`)
 
@@ -32,7 +32,7 @@ landed since the previous tag.
    tags the commit, and publishes a GitHub Release with auto-generated
    notes.
 
-No installers to build here — profiles are plain files that Deckhand
+No installers to build here - profiles are plain files that Deckhand
 fetches at install time, so the release is just a tag + notes.
 
 ## Adding a new printer profile

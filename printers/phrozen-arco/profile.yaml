@@ -146,7 +146,7 @@ stack:
     default_install: true
     wizard:
       explainer: |
-        KIAUH is the Klipper Installation And Update Helper — an interactive
+        KIAUH is the Klipper Installation And Update Helper - an interactive
         menu you run over SSH that lets you install, update, remove, and
         troubleshoot every piece of the Klipper stack. Deckhand handles your
         first-install; KIAUH handles tweaks you may want later.
@@ -196,20 +196,8 @@ mcus:
     klipper_alias: MKS_THR
 
 screens:
-  - id: arco_screen
-    display_name: arco_screen (OSS — recommended)
-    source_kind: bundled
-    source_path: ./screen-daemon/arco_screen/
-    service_name: arco-screen
-    install_script: ./screen-daemon/install.sh
-    supports:
-      power_loss_recovery: true
-      file_browser: true
-      mmu_ui: partial
-    status: beta
-    recommended: true
   - id: voronFDM
-    display_name: voronFDM (stock, closed-source ARM binary)
+    display_name: Stock voronFDM screen (recommended)
     source_kind: restore_from_backup
     restore_paths:
       - "/home/mks/voronFDM"
@@ -218,11 +206,30 @@ screens:
     depends_on:
       phrozen_master: stub_or_real
     status: stable
-    notes: |
+    recommended: true
+    notes: >
+      Stock closed-source ARM binary restored from your eMMC backup.
       Works well but can't be updated or audited. Bound to the specific
       TJC screen firmware shipped with the printer. Requires a stub at
-      /tmp/UNIX.domain to satisfy its startup check — Deckhand installs
+      /tmp/UNIX.domain to satisfy its startup check; Deckhand installs
       phrozen_master_stub.py when this screen is chosen.
+  - id: open_arco_screen
+    display_name: Open Arco screen (alpha, in development)
+    source_kind: bundled
+    source_path: ./screen-daemon/arco_screen/
+    service_name: arco-screen
+    install_script: ./screen-daemon/install.sh
+    supports:
+      power_loss_recovery: true
+      file_browser: true
+      mmu_ui: partial
+    status: alpha
+    recommended: false
+    notes: >
+      Open-source replacement for voronFDM being developed by Cepheus
+      Labs. Not feature-complete yet; most manual controls, the file
+      browser, and the print-start flow are still being wired up. Safe
+      to experiment with, but for daily printing pick the stock screen.
 
 addons:
   - id: chromakit
@@ -297,8 +304,8 @@ stock_os:
           Remove Phrozen's reverse tunnel?
         helper_text: |
           Always-on reverse tunnel to 42.193.239.84:7000 using a hardcoded
-          shared developer token (`lancaigang` — the developer's name).
-          Purpose isn't officially documented — likely intended for a future
+          shared developer token (`lancaigang` - the developer's name).
+          Purpose isn't officially documented - likely intended for a future
           Phrozen mobile app based on how it's wired. Whatever the intent,
           today it's an open remote-access channel reachable by anyone with
           the server + token.
@@ -326,7 +333,7 @@ stock_os:
           LED control, provides a local socket voronFDM needs on startup,
           and serves as a serial relay during ChromaKit firmware flashing.
           We always preserve the flash-relay role by invoking the binary
-          transiently from flash-chromakit.sh — the question is what to do
+          transiently from flash-chromakit.sh - the question is what to do
           about the daemon.
         options:
           - { id: keep, label: Keep running (phones home, LEDs via HDL app) }
@@ -350,19 +357,22 @@ stock_os:
         binaries on demand.
 
     - id: makerbase_udp
-      display_name: makerbase-udp (LAN HTTP/file-upload service)
+      display_name: makerbase-udp (MKS LAN upload daemon, likely unused)
       process_pattern: "udp_server"
       systemd_unit: makerbase-udp.service
-      default_action: keep
+      default_action: disable
       wizard:
-        question: Disable the MKS LAN file-upload service?
-        helper_text: |
-          Listens on UDP + HTTP (wz simple httpd) with no auth. Used by MKS
-          slicer / phone app for LAN discovery + gcode upload. Useful for
-          some users; attack surface for security-conscious ones.
+        question: Disable makerbase-udp?
+        helper_text: >
+          Inherited from the stock MKS-Pi Armbian image. Listens on UDP +
+          HTTP (wz simple httpd) with no auth - MKS's own slicer and phone
+          app use it for LAN discovery and gcode upload. Phrozen doesn't
+          advertise or document it on the Arco, so it's almost certainly
+          leftover code they never stripped. Safe to disable unless you
+          actually use an MKS tool against this printer.
         options:
-          - { id: keep, label: "Keep (recommended if you use MKS tools)" }
-          - { id: disable, label: "Disable (security-focused)" }
+          - { id: disable, label: "Disable (recommended)", description: "Stops the service at boot. Moonraker + Fluidd/Mainsail still work normally; you upload gcode through them." }
+          - { id: keep, label: "Keep", description: "Only relevant if you actively use MKS slicer or the MKS phone app against this printer." }
 
     - id: makerbase_net_mods
       display_name: makerbase-net-mods (USB wifi provisioning)
@@ -398,13 +408,13 @@ stock_os:
         note: |
           Phrozen replaced the stock KlipperScreen-start.sh with a custom
           script that launches voronFDM, phrozen_master, frpc, and an
-          aliyun NTP call — KlipperScreen itself never actually runs.
+          aliyun NTP call - KlipperScreen itself never actually runs.
           Deckhand rewrites this script cleanly as part of the install.
       default_action: keep_service_rewrite_script
       wizard: none
 
     - id: makerbase_client
-      display_name: makerbase-client (mksclient — MKS alternative screen daemon)
+      display_name: makerbase-client (mksclient - MKS alternative screen daemon)
       systemd_unit: makerbase-client.service
       default_action: keep_disabled
       wizard: none
@@ -462,10 +472,11 @@ stock_os:
       paths: ["/home/mks/update.sh"]
       default_action: delete
       wizard:
-        helper_text: |
-          Installs an Elegoo-branded `.deb` from a USB stick. Suggests the
-          Arco shares OEM lineage with an Elegoo product. Unused on most
-          units.
+        helper_text: >
+          Looks for an Elegoo-branded `.deb` on an attached USB stick and
+          installs it. Suggests this SBC image shares OEM lineage with an
+          Elegoo product. Has no legitimate purpose on an Arco; safe to
+          delete.
 
     - id: typo_files
       display_name: Accidental shell-redirect artifacts
@@ -508,16 +519,22 @@ stock_os:
       paths: ["/home/mks/klipper/klippy/extras/phrozen_dev/*.txt"]
       default_action: delete
       wizard:
-        helper_text: |
-          Developer notes in Chinese (e.g. 240402-1.txt, 250412.txt).
-          Not code, not config.
+        helper_text: >
+          Phrozen developer notes, mostly in Chinese (e.g. 240402-1.txt,
+          250412.txt). Not code, not config, not referenced by anything.
+          Matched as a glob, so any future dated .txt in this directory
+          is caught too.
 
     - id: cmds_old
-      display_name: Old duplicate extras file
-      paths: ["/home/mks/klipper/klippy/extras/phrozen_dev/cmds-240226.py"]
+      display_name: Dated duplicate extras files
+      paths: ["/home/mks/klipper/klippy/extras/phrozen_dev/cmds-*.py"]
       default_action: delete
       wizard:
-        helper_text: Pre-dates current cmds.py. Never loaded.
+        helper_text: >
+          Dated copies (e.g. cmds-240226.py) that pre-date the current
+          cmds.py in the same directory. Never loaded by Klipper -
+          phrozen_dev/__init__.py only imports `cmds`, not the dated
+          siblings. Safe to remove.
 
   paths:
     - id: klipper_install
@@ -550,7 +567,7 @@ wizard:
       question: |
         Your ChromaKit MCU firmware may already be at the factory version
         you want. Flash anyway? (You need the Phrozen proprietary helper
-        binaries on disk — Deckhand uses the copies already present on your
+        binaries on disk - Deckhand uses the copies already present on your
         stock install.)
       options:
         - { id: flash, label: Flash }
@@ -569,7 +586,7 @@ flows:
         message: |
           Before continuing, back up the whole eMMC to an image file.
           Deckhand can do this for you (dd the physical disk, via a USB
-          eMMC adapter). If you've never backed up, do it now — it's your
+          eMMC adapter). If you've never backed up, do it now - it's your
           only path back to stock firmware if something goes wrong.
         actions:
           - { id: backup_now, label: Back up now (recommended) }
