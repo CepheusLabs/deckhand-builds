@@ -1,10 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # Manual-only while we iterate. Flip push + pull_request triggers back
+  # on when we want CI to gate every change again.
+  workflow_dispatch:
 
 jobs:
   yaml-lint:

@@ -10,8 +10,8 @@ name: Release
 # the tagged commit at install time.
 
 on:
-  push:
-    branches: [main]
+  # Manual-only. Flip push-on-main back on when we want every merge to
+  # auto-tag + publish a release again.
   workflow_dispatch:
     inputs:
       ref:
