@@ -658,16 +658,30 @@ flows:
       - id: snapshot_paths
         kind: snapshot_paths
         paths: [klipper_install, klippy_env]
+      # fix_apt_sources is a Buster-only workaround: stock Arco ships
+      # with mirrors.aliyun.com which hasn't carried the EOL buster
+      # archive for a while. We want to switch to archive.debian.org
+      # ONLY when the printer is actually still on Buster. Users who
+      # manually upgraded to Bookworm / Trixie already have a working
+      # sources.list; overwriting it with a buster-targeted one would
+      # break their apt.
       - id: fix_apt_sources
-        kind: write_file
-        target: "/etc/apt/sources.list"
-        template: ./scripts/sources.list.bookworm-fallback.tmpl
-        sudo: true
-        mode: "0644"
-        owner: root
-        note: |
-          Stock has mirrors.aliyun.com; we switch to archive.debian.org for
-          EOL buster repositories.
+        kind: conditional
+        when: os_codename_is("buster")
+        then:
+          - id: fix_apt_sources_write
+            kind: write_file
+            target: "/etc/apt/sources.list"
+            template: ./scripts/sources.list.bookworm-fallback.tmpl
+            sudo: true
+            mode: "0644"
+            owner: root
+            # backup: true is the default now - Deckhand saves the
+            # prior sources.list to /etc/apt/sources.list.deckhand-pre-
+            # <timestamp> automatically.
+            note: |
+              Stock has mirrors.aliyun.com; we switch to
+              archive.debian.org for EOL buster repositories.
       - id: python_rebuild_if_needed
         kind: conditional
         when: os_python_below("3.9")
