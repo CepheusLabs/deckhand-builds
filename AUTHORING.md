@@ -70,6 +70,13 @@ required_hosts:
   - redirect.armbian.com
   - archive.debian.org
 
+# Printer identification hints for the connect screen. Tiered from
+# strongest to weakest signal; see "Identification" section below.
+identification:
+  marker_file: deckhand.json              # written by install_marker step
+  moonraker_objects: [phrozen_dev]        # stock-only fingerprint
+  hostname_patterns: ['^mkspi$']          # weak fallback
+
 hardware: { … }                           # see "Hardware declaration"
 os:       { … }                           # see "OS"
 ssh:      { … }                           # see "SSH"
@@ -92,6 +99,36 @@ verifiers: [ … ]                          # see "Post-install verifiers"
 
 Each section is documented below with complete examples drawn from the
 Arco's real configuration, so you can copy + adapt.
+
+---
+
+## Identification
+
+The connect screen probes every host it finds on the LAN and tags
+each card with one of: **confirmed match**, **probable match**,
+**does not match**, or **unknown** (still probing). The tiers:
+
+| Tier | Field               | Strength  | When it fires                                                                                              |
+|------|---------------------|-----------|------------------------------------------------------------------------------------------------------------|
+| 1    | `marker_file`       | confirmed | Deckhand installed this printer before (the `install_marker` step writes `~/printer_data/config/<file>`).  |
+| 2    | `moonraker_objects` | confirmed | Stock vendor Klipper modules are registered (e.g. `phrozen_dev` on the Arco).                              |
+| 3    | `hostname_patterns` | probable  | Moonraker's reported hostname matches a regex. Used when tiers 1-2 miss.                                   |
+
+Example:
+
+```yaml
+identification:
+  marker_file: deckhand.json
+  moonraker_objects:
+    - phrozen_dev                   # matches `phrozen_dev`, `phrozen_dev:runout`, etc.
+  hostname_patterns:
+    - '^mkspi$'
+```
+
+The marker file is what makes the identification durable across
+`apply_files` decisions that strip vendor artefacts: add an
+`install_marker` step to every flow that leaves the printer in a
+"Deckhand-managed" state and you'll always recognise it on return.
 
 ---
 
@@ -942,6 +979,11 @@ flows:
         kind: write_file
         target: "/home/mks/KlipperScreen/scripts/KlipperScreen-start.sh"
         template: ./scripts/KlipperScreen-start.sh.tmpl
+        # write_file options:
+        #   sudo:   true|false        (default: auto; true for paths
+        #                              outside the SSH user's $HOME)
+        #   mode:   "0644" | "0755"   (octal string, optional)
+        #   owner:  "root" | "mks"    (passed to `sudo install -o`)
       - id: flash_mcus
         kind: flash_mcus
         which: [main, toolhead]
@@ -950,9 +992,71 @@ flows:
         commands:
           - "sudo systemctl daemon-reload"
           - "sudo systemctl enable --now klipper moonraker"
+      # The marker step is what lets the connect screen recognise
+      # this printer next time - even after the user strips vendor
+      # artefacts or reflashes the OS. It writes a small JSON file
+      # under Moonraker's config root (default: deckhand.json).
+      # Profiles that pair this with `identification.marker_file:
+      # deckhand.json` get a confirmed-match badge on every rescan.
+      - id: install_marker
+        kind: install_marker
+        filename: deckhand.json        # optional; default deckhand.json
+        # target_dir: ~/printer_data/config   (default; tilde-expanded)
+        # extra: { notes: "any extra keys get merged into the JSON" }
       - id: run_verifiers
         kind: verify
 ```
+
+### kind: script
+
+Scripts are uploaded to `/tmp/deckhand-<basename>` and executed via
+`bash` (overridable with `interpreter:`). Options:
+
+```yaml
+- kind: script
+  path: shared/scripts/build-python-3.11.sh
+  interpreter: bash            # default
+  args: ["--prefix", "/usr/local"]  # optional, shell-quoted for you
+  timeout_seconds: 1800        # default 600
+  ignore_errors: false         # step fails on non-zero exit by default
+  sudo: false                  # default; set true to run the whole
+                               # script as root via `sudo -E`
+  askpass: true                # default; stages a transient askpass
+                               # helper + PATH-shim sudo wrapper so
+                               # the script's *internal* `sudo X`
+                               # calls authenticate over SSH without
+                               # a pty. Set false for scripts you
+                               # want to prove never elevate.
+```
+
+**How elevation is handled (no-pty SSH):** Deckhand SSH sessions
+don't allocate a pty, so plain `sudo X` inside a script hangs
+waiting for a password. To make scripts written for an interactive
+shell Just Work, Deckhand's default is to stage two tiny files on
+the printer before each script step:
+
+- `/tmp/deckhand-askpass-<ts>` (0700): a shell script that prints
+  the cached SSH password on stdout. sudo reads it via the standard
+  `SUDO_ASKPASS` contract.
+- `/tmp/deckhand-bin-<ts>/sudo` (0755): a PATH-shim that forwards
+  to `/usr/bin/sudo -A "$@"`. With that directory at the front of
+  the script's PATH, every `sudo cmd` inside the script becomes
+  `sudo -A cmd`, which consults the askpass helper.
+
+Both files are wiped in a `finally` block after the script returns
+(success or fail). The password is only on disk for the lifetime of
+the step; SSH already holds the same password in memory, so there's
+no privilege-level leak.
+
+Use `sudo: true` when you want the whole script to run as root from
+line 1. This wraps the invocation in `sudo -E` (with the same
+password cache). Most scripts don't need this; they can rely on the
+askpass helper for the handful of internal commands that need root.
+
+Use `askpass: false` as a belt-and-suspenders declaration that a
+given script must not elevate. Deckhand won't stage the helper, and
+any `sudo` inside the script will fail loudly with the usual no-pty
+error - making the intent auditable.
 
 ---
 
