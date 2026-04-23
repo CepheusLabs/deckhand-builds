@@ -23,6 +23,27 @@ required_hosts:
   - archive.debian.org
   - deb.debian.org
 
+identification:
+  # Tiered from strongest to weakest signal. Deckhand checks in order.
+  #
+  # marker_file: Deckhand writes this file under Moonraker's `config`
+  # root during install, so any printer we've processed is definitively
+  # ours on the next visit - even if the user later strips out
+  # phrozen_dev, switches web UIs, or otherwise moves off the stock
+  # inventory fingerprint.
+  marker_file: deckhand.json
+  # moonraker_objects: catches stock (pre-Deckhand) printers. The Arco
+  # ships with the phrozen_dev Klipper extras registered; that module
+  # name is distinctive enough to separate an Arco from a generic
+  # MKS-Pi box on the same LAN.
+  moonraker_objects:
+    - phrozen_dev
+  # Stock hostname is `mkspi`, shared with every other MKS-Pi box, so
+  # this is surfaced only as a "probable" match when no stronger
+  # signal is available.
+  hostname_patterns:
+    - '^mkspi$'
+
 hardware:
   architecture: aarch64
   sbc:
@@ -139,12 +160,18 @@ stack:
     choices:
       - id: fluidd
         display_name: Fluidd
+        description: >-
+          Compact, single-page Klipper dashboard. Dark theme by default,
+          fast to load, one-screen layout. Served on port 8808.
         release_repo: fluidd-core/fluidd
         asset_pattern: "fluidd.zip"
         install_path: "~/fluidd"
         default_port: 8808
       - id: mainsail
         display_name: Mainsail
+        description: >-
+          Widely-used Klipper dashboard with a configurable layout and
+          strong mobile support. Served on port 81.
         release_repo: mainsail-crew/mainsail
         asset_pattern: "mainsail.zip"
         install_path: "~/mainsail"
@@ -635,6 +662,9 @@ flows:
         kind: write_file
         target: "/etc/apt/sources.list"
         template: ./scripts/sources.list.bookworm-fallback.tmpl
+        sudo: true
+        mode: "0644"
+        owner: root
         note: |
           Stock has mirrors.aliyun.com; we switch to archive.debian.org for
           EOL buster repositories.
@@ -642,7 +672,11 @@ flows:
         kind: conditional
         when: os_python_below("3.9")
         then:
-          - { kind: script, path: shared/scripts/build-python-3.11.sh }
+          # The script is written to use `sudo apt-get ...` etc. on its
+          # own. Deckhand stages a transient `sudo -A` wrapper + an
+          # askpass helper on PATH, so those internal sudos authenticate
+          # without a pty. No wrapping flag needed.
+          - { kind: script, path: shared/scripts/build-python-3.11.sh, timeout_seconds: 1800 }
       - id: install_firmware
         kind: install_firmware
         confirm_before_run: true
@@ -666,6 +700,9 @@ flows:
         kind: write_file
         target: "/home/mks/KlipperScreen/scripts/KlipperScreen-start.sh"
         template: ./scripts/KlipperScreen-start.sh.tmpl
+        sudo: true
+        mode: "0755"
+        owner: mks
         confirm_before_run: true
       - id: install_screen
         kind: install_screen
@@ -678,6 +715,12 @@ flows:
         commands:
           - "sudo systemctl daemon-reload"
           - "sudo systemctl enable --now klipper moonraker"
+      # Write a JSON marker under Moonraker's config root so the
+      # connect screen can recognise this printer next time, even if
+      # the user later removes phrozen_dev or reflashes it.
+      - id: install_marker
+        kind: install_marker
+        filename: deckhand.json
       - id: run_verifiers
         kind: verify
 

@@ -49,6 +49,26 @@
       "items": {"type": "string"},
       "description": "Hosts this profile will contact during install. Used for batch approval."
     },
+    "identification": {
+      "type": "object",
+      "description": "Hints the connect screen uses to tell this printer apart from other Moonraker hosts on the LAN. Tiered from strongest to weakest: marker_file > moonraker_objects > hostname_patterns.",
+      "properties": {
+        "marker_file": {
+          "type": "string",
+          "description": "Filename under Moonraker's config root (~/printer_data/config/). Deckhand writes this file during install; its presence on the next visit confirms the printer went through our process."
+        },
+        "moonraker_objects": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Klipper object names that, if any appear in /printer/objects/list, identify this printer model. Matches as prefix-or-exact, so `phrozen_dev` matches `phrozen_dev` or `phrozen_dev:runout`."
+        },
+        "hostname_patterns": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Regex patterns the Moonraker hostname can match. Surfaced only as a `probable` match because common hostnames (e.g. `mkspi`) are shared across vendor boxes."
+        }
+      }
+    },
     "hardware": {
       "type": "object",
       "properties": {
