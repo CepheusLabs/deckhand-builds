@@ -169,8 +169,20 @@ echo "  Config:  $CONFIG_DIR"
 echo "  Service: /etc/systemd/system/arco-screen.service"
 echo ""
 
-# Start it if the user wants
-read -p "Start arco-screen now? [Y/n]: " start_choice
+# Start it if the user wants. Deckhand invokes this script over SSH
+# without a pty, so `read -p` would hang indefinitely waiting for input
+# that can never arrive (the installer's step timeout would then fire
+# and abort the whole flow with a timeout error that masks what
+# really happened). Gate the prompt on `[ -t 0 ]` so it only fires
+# when the script is run interactively from a real terminal. In the
+# automated path, default to Y (start the service) - that's the
+# overwhelmingly common user intent.
+if [ -t 0 ]; then
+    read -p "Start arco-screen now? [Y/n]: " start_choice
+else
+    start_choice="Y"
+fi
+
 if [ "$start_choice" != "n" ] && [ "$start_choice" != "N" ]; then
     sudo systemctl start arco-screen
     sleep 2

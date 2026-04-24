@@ -1041,7 +1041,7 @@ the first time this step runs.
 - id: fix_apt_sources
   kind: write_file
   target: /etc/apt/sources.list
-  template: ./scripts/sources.list.bookworm-fallback.tmpl  # OR content: "..."
+  template: ./scripts/sources.list.buster-archive.tmpl  # OR content: "..."
   sudo: true                # explicit; default infers from target path
   mode: "0644"              # octal string; optional
   owner: root               # passed to `sudo install -o`; optional

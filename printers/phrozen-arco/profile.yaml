@@ -22,6 +22,15 @@ required_hosts:
   - imola.armbian.com
   - archive.debian.org
   - deb.debian.org
+  # www.python.org is hit by the build-python-3.11.sh tarball download.
+  # pypi.org + files.pythonhosted.org are hit by pip when Klippy's
+  # requirements get installed into the venv. Listing them here makes
+  # the batch host-approval prompt honest about what the install
+  # actually needs; without this the user would be asked again
+  # mid-flow, breaking the one-prompt contract.
+  - www.python.org
+  - pypi.org
+  - files.pythonhosted.org
 
 identification:
   # Tiered from strongest to weakest signal. Deckhand checks in order.
@@ -69,15 +78,32 @@ hardware:
 
 os:
   stock:
+    # NOTE: `os.stock` here is the BEST-KNOWN baseline for the stock
+    # Phrozen image as shipped. The installer always probes the live
+    # printer at connect time (see PrinterStateProbe) and prefers the
+    # runtime values over these when evaluating `os_codename_is(...)`
+    # and `os_python_below(...)`. We intentionally leave the Buster
+    # baseline here for two reasons:
+    #   1. Users who are still on the original shipped image (circa
+    #      2023) need fix_apt_sources to fire on Buster.
+    #   2. Phrozen has shipped at least one newer image (Debian
+    #      Trixie with Python 3.12+), and the live-probe fallback
+    #      causes the Trixie-specific conditions to correctly skip.
+    # If you're updating this profile, keep `codename: buster` and
+    # `python: "3.7.3"` and add new Trixie-specific steps behind
+    # os_codename_is("trixie") instead of changing the baseline.
     distro: armbian
     version: "22.05.0-trunk"
     codename: buster
-    python: "3.7"
+    python: "3.7.3"
     notes: |
-      Stock OS is EOL Debian Buster with Python 3.7. Kalico and modern
+      Some stock images ship EOL Debian Buster with Python 3.7; newer
+      batches ship Debian Trixie with Python 3.12. Kalico and modern
       Klipper both need Python 3.9+, so a Python 3.11 build-from-source
-      step is required on the stock-keep flow. Also ships with apt sources
-      pinned to mirrors.aliyun.com; Deckhand switches to archive.debian.org.
+      step is queued only when the live probe reports a Python older
+      than 3.9. Buster images also need their apt sources switched
+      from mirrors.aliyun.com to archive.debian.org; that step is
+      gated on `os_codename_is("buster")` so Trixie installs skip it.
   fresh_install_options:
     # SECURITY: sha256 is schema-required for every fresh_install entry.
     # A 1.5 GB OS image delivered over a CDN redirect MUST be pinned
@@ -118,13 +144,13 @@ firmware:
       description: >
         Community-maintained Klipper fork (formerly Danger Klipper).
         Picks up fixes faster than upstream and ships a few extras that
-        matter on this machine: gcode_shell_command (lets your macros
-        shell out - handy for timelapses, notifications, OTA hooks),
-        better input-shaper calibration against the Arco's toolhead
-        accelerometer, improved ADC filament-runout handling for the
-        MKS_THR filament sensor, and looser safety rails
-        (danger_options) so you can unjam or manually extrude without
-        arguing with the firmware. Recommended.
+        matter on this machine: macros can run custom triggers (handy
+        for timelapses or notifications), better input-shaper
+        calibration against the Arco's toolhead accelerometer,
+        improved filament-runout handling for the printer's runout
+        sensor, and slightly relaxed safety rails so you can unjam or
+        manually extrude without arguing with the firmware.
+        Recommended.
       repo: https://github.com/KalicoCrew/kalico
       ref: main
       install_path: "~/kalico"
@@ -265,7 +291,11 @@ screens:
       /tmp/UNIX.domain to satisfy its startup check; Deckhand installs
       phrozen_master_stub.py when this screen is chosen.
   - id: open_arco_screen
-    display_name: Open Arco screen (alpha, in development)
+    # Status: alpha is already carried on the `status` field below -
+    # the UI renders a badge from that. Don't restate it inside the
+    # display_name or basic users see a parenthetical warning they
+    # cannot act on.
+    display_name: Open Arco Screen
     source_kind: bundled
     source_path: ./screen-daemon/arco_screen/
     service_name: arco-screen
@@ -372,12 +402,12 @@ stock_os:
         question: |
           Remove Phrozen's reverse tunnel?
         helper_text: |
-          Always-on reverse tunnel to 42.193.239.84:7000 using a hardcoded
-          shared developer token (`lancaigang` - the developer's name).
-          Purpose isn't officially documented - likely intended for a future
-          Phrozen mobile app based on how it's wired. Whatever the intent,
-          today it's an open remote-access channel reachable by anyone with
-          the server + token.
+          Always-on reverse tunnel to a remote server (42.193.239.84:7000)
+          using a hardcoded shared token that ships baked into every
+          printer. Purpose is not officially documented - likely intended
+          for a future Phrozen mobile app based on how it's wired. Either
+          way, today it's an open remote-access channel reachable by
+          anyone who knows the server and token.
         options:
           - { id: keep, label: Keep }
           - { id: remove, label: Remove (recommended) }
@@ -629,15 +659,22 @@ wizard:
   title: Phrozen Arco Setup
   # Uses the default step set; no steps_override needed.
   extra_steps:
+    # ChromaKit offer: now available on BOTH flows so fresh-flash users
+    # also get prompted to update the MCU firmware. The old gate on
+    # stock_keep alone left fresh-install users with no way to reach
+    # this step from inside the wizard. On fresh flash the prompt
+    # explains that the proprietary helper binaries aren't on the new
+    # Armbian image and flashing will require running the step from a
+    # later stock-keep session or copying the binaries in manually.
     - id: chromakit_firmware
-      when: selected(choose_path, stock_keep)
       title: Flash ChromaKit firmware?
       kind: choose_one
       question: |
         Your ChromaKit MCU firmware may already be at the factory version
         you want. Flash anyway? (You need the Phrozen proprietary helper
-        binaries on disk - Deckhand uses the copies already present on your
-        stock install.)
+        binaries on disk. On a stock-keep install Deckhand uses the
+        copies already present; on a fresh flash you'll need to bring
+        them over by hand before this step can complete.)
       options:
         - { id: flash, label: Flash }
         - { id: skip, label: Skip (keep current) }
@@ -683,7 +720,7 @@ flows:
           - id: fix_apt_sources_write
             kind: write_file
             target: "/etc/apt/sources.list"
-            template: ./scripts/sources.list.bookworm-fallback.tmpl
+            template: ./scripts/sources.list.buster-archive.tmpl
             sudo: true
             mode: "0644"
             owner: root
@@ -810,6 +847,14 @@ flows:
         confirm_before_run: true
       - id: run_verifiers
         kind: verify
+      # install_marker is also present on the fresh_flash flow so a
+      # printer that was flashed with a fresh Armbian image still gets
+      # an identification marker on return visits. Without this, a
+      # fresh-flashed Arco would fall back to tier-2 identification
+      # (Moonraker objects) and may fail tier-1 entirely if the user
+      # later removes phrozen_dev.
+      - id: install_marker
+        kind: install_marker
 
 verifiers:
   - id: klipper_service_active
