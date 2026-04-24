@@ -18,8 +18,13 @@ required_hosts:
   - github.com
   - raw.githubusercontent.com
   - codeload.github.com
-  - redirect.armbian.com
-  - imola.armbian.com
+  # Armbian image hosts. dl.armbian.com redirects through cache.* and
+  # community mirror(s); listing both the public-facing host and the
+  # current mirror keeps the batch-approval prompt honest whichever
+  # one the 302 chain lands on.
+  - dl.armbian.com
+  - cache.armbian.com
+  - armbian.lv.auroradev.org
   - archive.debian.org
   - deb.debian.org
   # www.python.org is hit by the build-python-3.11.sh tarball download.
@@ -106,26 +111,28 @@ os:
       gated on `os_codename_is("buster")` so Trixie installs skip it.
   fresh_install_options:
     # SECURITY: sha256 is schema-required for every fresh_install entry.
-    # A 1.5 GB OS image delivered over a CDN redirect MUST be pinned
-    # or a MITM can substitute a compromised image without anyone
-    # noticing. The download sidecar enforces the match before the
-    # elevated helper writes anything to the eMMC.
+    # A ~350 MB OS image delivered over a CDN MUST be pinned or a MITM
+    # can substitute a compromised image without anyone noticing.
+    # The download sidecar enforces the match before the elevated
+    # helper writes anything to the eMMC.
     #
-    # PROFILE AUTHOR: `redirect.armbian.com` is a floating pointer;
-    # bump to a specific Armbian release and its published sha256
-    # before marking this profile `stable`. The 64-zero placeholder
-    # below satisfies the schema shape but will cause the verified
-    # download step to fail fast until replaced.
-    - id: armbian-bookworm-cli
-      display_name: Armbian Bookworm (CLI) for MKS Pi
+    # Pinned to a specific Armbian community build (26.2.0-trunk.792,
+    # minimal/CLI, Debian Trixie, kernel 6.18.24). Bumping this is a
+    # conscious action: fetch the new .sha file from
+    # https://dl.armbian.com/mkspi/Trixie_current_minimal.sha and
+    # paste the 64-hex value here alongside the new URL. Do NOT use
+    # `redirect.armbian.com` / `*_current` floating pointers in
+    # production - they defeat reproducibility.
+    - id: armbian-trixie-minimal
+      display_name: Armbian Trixie (CLI) for MKS Pi
       architecture: aarch64
-      url: https://redirect.armbian.com/mkspi/Bookworm_current
-      sha256: "0000000000000000000000000000000000000000000000000000000000000000"
-      size_bytes_approx: 1500000000
+      url: https://armbian.lv.auroradev.org/cache/artifacts/mkspi/archive/Armbian_community_26.2.0-trunk.792_Mkspi_trixie_current_6.18.24_minimal.img.xz
+      sha256: "56218ffb747a4d7a2cb46f28250a699b23b336939179ca2d29ed82e29066a509"
+      size_bytes_approx: 400000000
       recommended: true
       notes: |
-        Ships Python 3.11, systemd, clean Armbian base. No Phrozen
-        services. Use the CLI variant (not Desktop).
+        Ships Python 3.12, systemd, clean Armbian base. No Phrozen
+        services. Minimal CLI image (no desktop environment).
   boot_mode: mbr
 
 ssh:
@@ -749,8 +756,14 @@ flows:
             path: shared/scripts/build-python-3.11.sh
             timeout_seconds: 1800
             env:
-              PYTHON_VERSION: "3.11.9"
-              PYTHON_SHA256: "AUTHOR_VERIFY_REQUIRED_SEE_NOTE_BELOW_THEN_SET_64_HEX_CHARS_HERE_____________"
+              # Python 3.11.15 is the latest stable 3.11.x release
+              # (March 2026). The sha256 below is the published hash
+              # of Python-3.11.15.tar.xz from
+              #   https://www.python.org/ftp/python/3.11.15/
+              # cross-verified against the docker-library/python
+              # version manifest.
+              PYTHON_VERSION: "3.11.15"
+              PYTHON_SHA256: "272179ddd9a2e41a0fc8e42e33dfbdca0b3711aa5abf372d3f2d51543d09b625"
       - id: install_firmware
         kind: install_firmware
         confirm_before_run: true

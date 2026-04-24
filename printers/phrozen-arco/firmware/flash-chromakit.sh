@@ -89,13 +89,28 @@ PHROZEN_DEV_DIR="$(find /home -path "*/klippy/extras/phrozen_dev" -type d 2>/dev
 if [ -z "$PHROZEN_DEV_DIR" ]; then
     PHROZEN_DEV_DIR="/home/mks/kalico/klippy/extras/phrozen_dev"
 fi
-cp "$FIRMWARE" "$PHROZEN_DEV_DIR/" 2>/dev/null || true
+if ! cp "$FIRMWARE" "$PHROZEN_DEV_DIR/"; then
+    echo "ERROR: could not stage firmware at $PHROZEN_DEV_DIR/. Aborting." >&2
+    echo "  (Previously this step silently continued with `|| true`, which"  >&2
+    echo "   masked the real failure and left the flash apparently running" >&2
+    echo "   but with no actual firmware staged.)" >&2
+    exit 1
+fi
 
 # Start phrozen_master (serial port relay - local only)
 echo "[3/5] Starting serial relay..."
-# Block network access for phrozen_master using iptables
+# Block network access for phrozen_master using iptables. Two rules,
+# belt + suspenders:
+#   1. UID-owner match: blocks outbound traffic from this user's
+#      processes, which covers the non-setuid invocation path.
+#   2. Destination match: blocks traffic to the phone-home server
+#      regardless of UID, which covers setuid binaries + any
+#      subprocess that escalates privilege.
+# A single UID rule would have been defeated by a setuid phrozen_master
+# - the destination-only rule catches that case too.
 sudo iptables -A OUTPUT -m owner --uid-owner $(id -u) -d 42.193.239.84 -j DROP 2>/dev/null || true
 sudo iptables -A OUTPUT -m owner --uid-owner $(id -u) -p tcp --dport 7000 -j DROP 2>/dev/null || true
+sudo iptables -A OUTPUT -d 42.193.239.84 -p tcp --dport 7000 -j DROP 2>/dev/null || true
 
 chmod +x "$MASTER" "$SLAVE_OTA"
 "$MASTER" >/dev/null 2>&1 &
