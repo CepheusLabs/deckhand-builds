@@ -1111,14 +1111,18 @@ for printer images) are NOT discovered.
 
 ### kind: script
 
-Scripts are uploaded to `/tmp/deckhand-<basename>` and executed via
-`bash` (overridable with `interpreter:`). Options:
+Scripts are uploaded to `/tmp/deckhand-<random>-<basename>` with mode
+`0700` and executed via `bash` (overridable with `interpreter:`).
+Options:
 
 ```yaml
 - kind: script
   path: shared/scripts/build-python-3.11.sh
   interpreter: bash            # default
   args: ["--prefix", "/usr/local"]  # optional, shell-quoted for you
+  env:                         # optional environment variables
+    PYTHON_VERSION: "3.11.9"
+    PYTHON_SHA256: "<64-hex>"  # keys MUST match ^[A-Za-z_][A-Za-z0-9_]*$
   timeout_seconds: 1800        # default 600
   ignore_errors: false         # step fails on non-zero exit by default
   sudo: false                  # default; set true to run the whole
@@ -1130,6 +1134,17 @@ Scripts are uploaded to `/tmp/deckhand-<basename>` and executed via
                                # a pty. Set false for scripts you
                                # want to prove never elevate.
 ```
+
+**`env:` values** are single-quoted before splicing into the command
+line (see the shell-quoting section), so any string is safe to pass.
+Use this for script inputs that MUST be pinned from the profile
+(sha256 hashes, version numbers, feature toggles) instead of relying
+on the script's defaults.
+
+The random suffix on the remote path exists so a non-root process on
+the printer cannot guess it and read or race-overwrite the script
+mid-execution. Don't hard-code the remote path inside your script; if
+you need to reference it, use `$0`.
 
 **How elevation is handled (no-pty SSH):** Deckhand SSH sessions
 don't allocate a pty, so plain `sudo X` inside a script hangs
