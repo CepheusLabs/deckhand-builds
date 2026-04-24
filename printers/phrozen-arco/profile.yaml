@@ -690,7 +690,19 @@ flows:
           # own. Deckhand stages a transient `sudo -A` wrapper + an
           # askpass helper on PATH, so those internal sudos authenticate
           # without a pty. No wrapping flag needed.
-          - { kind: script, path: shared/scripts/build-python-3.11.sh, timeout_seconds: 1800 }
+          #
+          # PYTHON_SHA256 pins the CPython 3.11.9 source tarball by
+          # sha256. The canonical value is published alongside the
+          # tarball at https://www.python.org/ftp/python/3.11.9/ .
+          # Profile authors who bump PYTHON_VERSION MUST also update
+          # PYTHON_SHA256 in the same change - the build script will
+          # refuse to run with an empty or mismatched hash.
+          - kind: script
+            path: shared/scripts/build-python-3.11.sh
+            timeout_seconds: 1800
+            env:
+              PYTHON_VERSION: "3.11.9"
+              PYTHON_SHA256: "AUTHOR_VERIFY_REQUIRED_SEE_NOTE_BELOW_THEN_SET_64_HEX_CHARS_HERE_____________"
       - id: install_firmware
         kind: install_firmware
         confirm_before_run: true
