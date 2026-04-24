@@ -79,11 +79,22 @@ os:
       step is required on the stock-keep flow. Also ships with apt sources
       pinned to mirrors.aliyun.com; Deckhand switches to archive.debian.org.
   fresh_install_options:
+    # SECURITY: sha256 is schema-required for every fresh_install entry.
+    # A 1.5 GB OS image delivered over a CDN redirect MUST be pinned
+    # or a MITM can substitute a compromised image without anyone
+    # noticing. The download sidecar enforces the match before the
+    # elevated helper writes anything to the eMMC.
+    #
+    # PROFILE AUTHOR: `redirect.armbian.com` is a floating pointer;
+    # bump to a specific Armbian release and its published sha256
+    # before marking this profile `stable`. The 64-zero placeholder
+    # below satisfies the schema shape but will cause the verified
+    # download step to fail fast until replaced.
     - id: armbian-bookworm-cli
       display_name: Armbian Bookworm (CLI) for MKS Pi
       architecture: aarch64
       url: https://redirect.armbian.com/mkspi/Bookworm_current
-      sha256: null
+      sha256: "0000000000000000000000000000000000000000000000000000000000000000"
       size_bytes_approx: 1500000000
       recommended: true
       notes: |

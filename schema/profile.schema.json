@@ -4,41 +4,46 @@
   "title": "Deckhand printer profile",
   "description": "Schema for profile.yaml files under printers/<id>/. Consumed by Deckhand's profile parser.",
   "type": "object",
+  "additionalProperties": false,
   "required": ["schema_version", "profile_id", "profile_version", "display_name", "status"],
   "properties": {
     "schema_version": {"type": "integer", "const": 1},
-    "profile_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
-    "profile_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
-    "display_name": {"type": "string", "minLength": 1},
-    "manufacturer": {"type": "string"},
-    "model": {"type": "string"},
+    "profile_id": {"type": "string", "pattern": "^[a-z0-9-]+$", "minLength": 1, "maxLength": 80},
+    "profile_version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "maxLength": 20},
+    "display_name": {"type": "string", "minLength": 1, "maxLength": 80},
+    "manufacturer": {"type": "string", "maxLength": 80},
+    "model": {"type": "string", "maxLength": 80},
     "status": {
       "type": "string",
       "enum": ["stub", "alpha", "beta", "stable", "deprecated"]
     },
     "maintainers": {
       "type": "array",
+      "maxItems": 20,
       "items": {
         "type": "object",
         "required": ["name"],
+        "additionalProperties": false,
         "properties": {
-          "name": {"type": "string"},
-          "contact": {"type": "string"}
+          "name": {"type": "string", "minLength": 1, "maxLength": 80},
+          "contact": {"type": "string", "maxLength": 200}
         }
       }
     },
     "compatible_with": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "firmware_variants": {
           "type": "array",
           "items": {
             "type": "object",
             "required": ["id", "display_name"],
+            "additionalProperties": false,
             "properties": {
-              "id": {"type": "string"},
-              "display_name": {"type": "string"},
-              "notes": {"type": "string"}
+              "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 40},
+              "display_name": {"type": "string", "minLength": 1, "maxLength": 80},
+              "notes": {"type": "string", "maxLength": 2000}
             }
           }
         }
@@ -46,53 +51,59 @@
     },
     "required_hosts": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$",
+        "maxLength": 253,
+        "description": "DNS hostname with no scheme or path. Used for batch allowlisting."
+      },
       "description": "Hosts this profile will contact during install. Used for batch approval."
     },
     "identification": {
       "type": "object",
+      "additionalProperties": false,
       "description": "Hints the connect screen uses to tell this printer apart from other Moonraker hosts on the LAN. Tiered from strongest to weakest: marker_file > moonraker_objects > hostname_patterns.",
       "properties": {
         "marker_file": {
           "type": "string",
-          "description": "Filename under Moonraker's config root (~/printer_data/config/). Deckhand writes this file during install; its presence on the next visit confirms the printer went through our process."
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "maxLength": 128,
+          "description": "Filename under Moonraker's config root. No path separators."
         },
         "moonraker_objects": {
           "type": "array",
-          "items": {"type": "string"},
-          "description": "Klipper object names that, if any appear in /printer/objects/list, identify this printer model. Matches as prefix-or-exact, so `phrozen_dev` matches `phrozen_dev` or `phrozen_dev:runout`."
+          "items": {"type": "string", "maxLength": 128}
         },
         "hostname_patterns": {
           "type": "array",
-          "items": {"type": "string"},
-          "description": "Regex patterns the Moonraker hostname can match. Surfaced only as a `probable` match because common hostnames (e.g. `mkspi`) are shared across vendor boxes."
+          "items": {"type": "string", "maxLength": 128}
         }
       }
     },
     "hardware": {
       "type": "object",
       "properties": {
-        "architecture": {"type": ["string", "null"]},
+        "architecture": {"type": ["string", "null"], "maxLength": 40},
         "sbc": {
           "type": ["object", "null"],
           "properties": {
-            "soc": {"type": ["string", "null"]},
-            "board": {"type": ["string", "null"]},
-            "emmc_size_bytes": {"type": ["integer", "null"]}
+            "soc": {"type": ["string", "null"], "maxLength": 40},
+            "board": {"type": ["string", "null"], "maxLength": 80},
+            "emmc_size_bytes": {"type": ["integer", "null"], "minimum": 0, "maximum": 17592186044416}
           }
         },
-        "kinematics": {"type": ["string", "null"]},
+        "kinematics": {"type": ["string", "null"], "maxLength": 40},
         "build_volume_mm": {
           "type": ["object", "null"],
           "properties": {
-            "x": {"type": "number"},
-            "y": {"type": "number"},
-            "z": {"type": "number"}
+            "x": {"type": "number", "minimum": 0},
+            "y": {"type": "number", "minimum": 0},
+            "z": {"type": "number", "minimum": 0}
           }
         },
         "steppers": {"type": "array"},
         "sensors": {"type": "array"},
-        "features": {"type": "array", "items": {"type": "string"}}
+        "features": {"type": "array", "items": {"type": "string", "maxLength": 40}}
       }
     },
     "os": {
@@ -101,27 +112,37 @@
         "stock": {
           "type": ["object", "null"],
           "properties": {
-            "distro": {"type": ["string", "null"]},
-            "version": {"type": ["string", "null"]},
-            "codename": {"type": ["string", "null"]},
-            "python": {"type": ["string", "null"]},
-            "notes": {"type": ["string", "null"]}
+            "distro": {"type": ["string", "null"], "maxLength": 40},
+            "version": {"type": ["string", "null"], "maxLength": 40},
+            "codename": {"type": ["string", "null"], "maxLength": 40},
+            "python": {"type": ["string", "null"], "maxLength": 20},
+            "notes": {"type": ["string", "null"], "maxLength": 2000}
           }
         },
         "fresh_install_options": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["id", "display_name"],
+            "required": ["id", "display_name", "url", "sha256"],
+            "additionalProperties": false,
             "properties": {
-              "id": {"type": "string"},
-              "display_name": {"type": "string"},
-              "url": {"type": "string"},
-              "sha256": {"type": ["string", "null"]},
-              "size_bytes_approx": {"type": ["integer", "null"]},
+              "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 40},
+              "display_name": {"type": "string", "minLength": 1, "maxLength": 80},
+              "url": {
+                "type": "string",
+                "pattern": "^https://",
+                "maxLength": 2048,
+                "description": "HTTPS only. file://, http://, ftp:// are rejected at profile load."
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "description": "Required. 64 hex characters. Prevents silent tampering of a 1.5 GB OS image delivered over an arbitrary CDN. Profiles that genuinely cannot pin a hash belong in `stub` status."
+              },
+              "size_bytes_approx": {"type": ["integer", "null"], "minimum": 0},
               "recommended": {"type": "boolean"},
-              "architecture": {"type": "string"},
-              "notes": {"type": "string"}
+              "architecture": {"type": "string", "maxLength": 40},
+              "notes": {"type": "string", "maxLength": 2000}
             }
           }
         },
@@ -130,21 +151,24 @@
     },
     "ssh": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "default_port": {"type": "integer"},
+        "default_port": {"type": "integer", "minimum": 1, "maximum": 65535},
         "default_credentials": {
           "type": "array",
           "items": {
             "type": "object",
             "required": ["user"],
+            "additionalProperties": false,
             "properties": {
-              "user": {"type": "string"},
-              "password": {"type": "string"},
-              "key_path": {"type": "string"}
+              "user": {"type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_-]*$", "maxLength": 32},
+              "password": {"type": "string", "maxLength": 256},
+              "key_path": {"type": "string", "maxLength": 512}
             }
           }
         },
-        "recommended_user_after_install": {"type": "string"}
+        "recommended_user_after_install": {"type": "string", "maxLength": 32},
+        "fingerprint_notes": {"type": "string", "maxLength": 4000}
       }
     },
     "firmware": {
@@ -155,20 +179,30 @@
           "items": {
             "type": "object",
             "required": ["id", "display_name", "repo"],
+            "additionalProperties": false,
             "properties": {
-              "id": {"type": "string"},
-              "display_name": {"type": "string"},
-              "description": {"type": "string"},
-              "repo": {"type": "string", "format": "uri"},
-              "ref": {"type": "string"},
-              "install_path": {"type": "string"},
-              "venv_path": {"type": "string"},
-              "python_min": {"type": "string"},
+              "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 40},
+              "display_name": {"type": "string", "minLength": 1, "maxLength": 80},
+              "description": {"type": "string", "maxLength": 4000},
+              "repo": {
+                "type": "string",
+                "pattern": "^https://",
+                "maxLength": 2048
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._/-]+$",
+                "maxLength": 128,
+                "description": "Git ref (branch, tag, or SHA). ASCII-only subset matching git's safe grammar."
+              },
+              "install_path": {"$ref": "#/$defs/remote_path"},
+              "venv_path": {"$ref": "#/$defs/remote_path"},
+              "python_min": {"type": "string", "pattern": "^\\d+(\\.\\d+){0,2}$", "maxLength": 20},
               "recommended": {"type": "boolean"}
             }
           }
         },
-        "default_choice": {"type": "string"},
+        "default_choice": {"type": "string", "maxLength": 40},
         "replace_stock_in_place": {"type": "boolean"},
         "snapshot_before_replace": {"type": "boolean"},
         "requires_python_rebuild_if": {
@@ -177,19 +211,15 @@
           "items": {
             "type": "object",
             "required": ["condition", "action"],
+            "additionalProperties": false,
             "properties": {
-              "condition": {
-                "type": "string",
-                "description": "DSL predicate expression (e.g. 'os_python_below(firmware.selected.python_min)')."
-              },
+              "condition": {"type": "string", "maxLength": 500},
               "action": {
                 "type": "string",
-                "description": "Machine-readable action tag. Today only 'build-python-from-source' is consumed; additional tags may be added over time."
+                "enum": ["build-python-from-source"],
+                "description": "Machine-readable action tag. Extend the enum when adding a new one."
               },
-              "script": {
-                "type": "string",
-                "description": "Path (repo-relative) to a shell script the Deckhand installer runs over SSH when the condition matches."
-              }
+              "script": {"$ref": "#/$defs/repo_relative_path"}
             }
           }
         }
@@ -198,10 +228,27 @@
     "stack": {
       "type": "object",
       "properties": {
-        "moonraker": {"type": "object"},
-        "webui": {"type": "object"},
-        "kiauh": {"type": "object"},
-        "crowsnest": {"type": "object"}
+        "moonraker": {"$ref": "#/$defs/stack_component"},
+        "webui": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Special case - webui is a choose_one group rather than a single component.",
+          "properties": {
+            "choices": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/stack_component_choice"}
+            },
+            "default": {"type": "string", "maxLength": 40},
+            "default_choices": {
+              "type": "array",
+              "items": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 40}
+            },
+            "allow_multiple": {"type": "boolean"},
+            "allow_none": {"type": "boolean"}
+          }
+        },
+        "kiauh": {"$ref": "#/$defs/stack_component"},
+        "crowsnest": {"$ref": "#/$defs/stack_component"}
       }
     },
     "mcus": {
@@ -210,9 +257,9 @@
         "type": "object",
         "required": ["id"],
         "properties": {
-          "id": {"type": "string"},
-          "display_name": {"type": "string"},
-          "chip": {"type": "string"},
+          "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 40},
+          "display_name": {"type": "string", "maxLength": 80},
+          "chip": {"type": "string", "maxLength": 40},
           "transport": {"type": "object"}
         }
       }
@@ -223,11 +270,14 @@
         "type": "object",
         "required": ["id"],
         "properties": {
-          "id": {"type": "string"},
-          "display_name": {"type": "string"},
-          "source_kind": {"type": "string"},
-          "status": {"type": "string"},
-          "recommended": {"type": "boolean"}
+          "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$", "maxLength": 40, "description": "ASCII-only screen identifier. Case-insensitive; leading char must not be a hyphen."},
+          "display_name": {"type": "string", "maxLength": 80},
+          "description": {"type": "string", "maxLength": 2000},
+          "source_kind": {"type": "string", "maxLength": 40},
+          "status": {"type": "string", "enum": ["stub", "alpha", "beta", "stable", "deprecated"]},
+          "recommended": {"type": "boolean"},
+          "install_path": {"$ref": "#/$defs/remote_path"},
+          "notes": {"type": "string", "maxLength": 2000}
         }
       }
     },
@@ -237,9 +287,9 @@
         "type": "object",
         "required": ["id"],
         "properties": {
-          "id": {"type": "string"},
-          "kind": {"type": "string"},
-          "display_name": {"type": "string"}
+          "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 40},
+          "kind": {"type": "string", "maxLength": 40},
+          "display_name": {"type": "string", "maxLength": 80}
         }
       }
     },
@@ -247,21 +297,78 @@
       "type": "object",
       "properties": {
         "detections": {"type": "array"},
-        "services": {"type": "array"},
-        "files": {"type": "array"},
-        "paths": {"type": "array"}
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 40},
+              "display_name": {"type": "string", "maxLength": 80},
+              "description": {"type": "string", "maxLength": 2000},
+              "default_action": {
+                "type": "string",
+                "enum": [
+                  "remove",
+                  "disable",
+                  "keep",
+                  "stub",
+                  "derived",
+                  "keep_disabled",
+                  "keep_service_rewrite_script"
+                ],
+                "description": "Action to apply unless the user overrides. `derived` = computed from other decisions (e.g. the screen daemon follows the screen choice). `keep_service_rewrite_script` = preserve service but rewrite its launcher via a write_file step. `keep_disabled` = leave the service unit installed but disabled."
+              },
+              "systemd_unit": {"type": "string", "pattern": "^[A-Za-z0-9._@-]+$", "maxLength": 128},
+              "process_pattern": {"type": "string", "maxLength": 200},
+              "role": {"type": "string", "maxLength": 40}
+            }
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$", "maxLength": 40, "description": "ASCII-only identifier. Leading character must not be a hyphen so an id can never be mistaken for a CLI flag."},
+              "display_name": {"type": "string", "maxLength": 80},
+              "description": {"type": "string", "maxLength": 2000},
+              "default_action": {"type": "string", "enum": ["delete", "keep"]},
+              "paths": {
+                "type": "array",
+                "items": {"$ref": "#/$defs/remote_path"}
+              }
+            }
+          }
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "path"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 40},
+              "display_name": {"type": "string", "maxLength": 80},
+              "path": {"$ref": "#/$defs/remote_path"},
+              "snapshot_to": {"$ref": "#/$defs/remote_path"},
+              "role": {"type": "string", "maxLength": 40}
+            }
+          }
+        }
       }
     },
     "wizard": {
       "type": "object",
       "properties": {
-        "title": {"type": "string"},
+        "title": {"type": "string", "maxLength": 80},
         "steps_override": {"type": "object"},
         "extra_steps": {"type": "array"}
       }
     },
     "flows": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "stock_keep": {"$ref": "#/$defs/flow_spec"},
         "fresh_flash": {"$ref": "#/$defs/flow_spec"}
@@ -269,9 +376,77 @@
     },
     "verifiers": {"type": "array"}
   },
+  "allOf": [
+    {
+      "description": "Non-stub profiles MUST declare at least one flow so we never ship a half-built destructive profile as anything other than `stub`.",
+      "if": {
+        "properties": {"status": {"not": {"const": "stub"}}},
+        "required": ["status"]
+      },
+      "then": {"required": ["flows"]}
+    }
+  ],
   "$defs": {
+    "remote_path": {
+      "type": "string",
+      "description": "Absolute (`/...`) or tilde-prefixed (`~/...`) path on the printer. Path traversal sequences and empty strings are rejected at schema level; the installer additionally shell-quotes every path on use.",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(/|~(/.+)?$)(?!.*\\.\\.(/|$)).*$"
+    },
+    "repo_relative_path": {
+      "type": "string",
+      "description": "Path relative to the profile repo root (shared/ or printers/<id>/...). No leading slash; no `..` traversal.",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*\\.\\.(/|$)).*$"
+    },
+    "stack_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repo": {"type": "string", "pattern": "^https://", "maxLength": 2048},
+        "ref": {"type": "string", "pattern": "^[A-Za-z0-9._/-]+$", "maxLength": 128},
+        "install_path": {"$ref": "#/$defs/remote_path"},
+        "venv_path": {"$ref": "#/$defs/remote_path"},
+        "systemd_unit": {"type": "string", "maxLength": 128},
+        "notes": {"type": "string", "maxLength": 2000},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "trusted_clients": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 64}
+        },
+        "default_install": {"type": "boolean"},
+        "included": {"type": "boolean"},
+        "wizard": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "explainer": {"type": "string", "maxLength": 8000},
+            "examples": {"type": "array", "items": {"type": "string", "maxLength": 200}}
+          }
+        }
+      }
+    },
+    "stack_component_choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 40},
+        "display_name": {"type": "string", "maxLength": 80},
+        "description": {"type": "string", "maxLength": 4000},
+        "repo": {"type": "string", "pattern": "^https://", "maxLength": 2048},
+        "release_repo": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "maxLength": 120, "description": "Internal GitHub org/repo slug. Not displayed to end users."},
+        "asset_pattern": {"type": "string", "maxLength": 128, "description": "Filename pattern to look for in a GitHub release asset list (e.g. `fluidd.zip`)."},
+        "install_path": {"$ref": "#/$defs/remote_path"},
+        "default_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "recommended": {"type": "boolean"}
+      }
+    },
     "flow_spec": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "enabled": {"type": "boolean"},
         "preconditions": {"type": "array"},
@@ -281,7 +456,7 @@
             "type": "object",
             "required": ["kind"],
             "properties": {
-              "id": {"type": "string"},
+              "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 80},
               "kind": {"type": "string"}
             },
             "oneOf": [
@@ -295,95 +470,117 @@
         }
       }
     },
+    "step_common_properties": {
+      "description": "Fields that can appear on any step. Kept as a reusable fragment so every concrete step schema can include them without duplicating.",
+      "properties": {
+        "confirm_before_run": {"type": "boolean", "description": "UI shows a confirm dialog before invoking this step."},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 14400},
+        "ignore_errors": {"type": "boolean"},
+        "when": {"type": "string", "maxLength": 500}
+      }
+    },
     "step_write_file": {
       "type": "object",
       "description": "Destructive-write step. Auto-snapshots the existing target to `<target>.deckhand-pre-<profile-id>-<ts>` (+ `.meta.json` sidecar) before overwriting unless backup=false.",
       "required": ["kind", "target"],
+      "additionalProperties": false,
       "properties": {
         "kind": {"const": "write_file"},
-        "id": {"type": "string"},
-        "target": {
-          "type": "string",
-          "description": "Absolute path on the printer. Tilde-expansion of `~/...` is resolved against the SSH user's home."
-        },
-        "template": {
-          "type": "string",
-          "description": "Repo-relative path to a template file. Rendered through the wizard template engine (double-brace substitutions). Mutually exclusive with `content`."
-        },
-        "content": {
-          "type": "string",
-          "description": "Inline content. Mutually exclusive with `template`."
-        },
-        "sudo": {
-          "type": "boolean",
-          "description": "Force elevation. When omitted, Deckhand infers sudo for anything outside the SSH user's home or /tmp."
-        },
+        "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 80},
+        "target": {"$ref": "#/$defs/remote_path"},
+        "template": {"$ref": "#/$defs/repo_relative_path"},
+        "content": {"type": "string", "maxLength": 1048576},
+        "sudo": {"type": "boolean"},
         "mode": {
-          "type": ["string", "integer"],
-          "description": "Octal permission mode, e.g. \"0644\" or 420."
+          "oneOf": [
+            {"type": "string", "pattern": "^0[0-7]{3,4}$"},
+            {"type": "integer", "minimum": 0, "maximum": 4095}
+          ]
         },
-        "owner": {
-          "type": "string",
-          "description": "Passed to `sudo install -o <owner>`. No-op without sudo."
-        },
-        "backup": {
-          "type": "boolean",
-          "description": "Default true. Set false to skip the auto-snapshot (dangerous)."
-        },
-        "require_path": {
-          "type": "string",
-          "description": "Skip the step entirely if this absolute path does not exist on the live printer. Gates profile steps that assume a specific vendor layout (e.g. rewriting KlipperScreen's launcher only when KlipperScreen is installed)."
-        }
+        "owner": {"type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_-]*$", "maxLength": 32},
+        "backup": {"type": "boolean"},
+        "require_path": {"$ref": "#/$defs/remote_path"},
+        "confirm_before_run": {"type": "boolean"},
+        "when": {"type": "string", "maxLength": 500}
       }
     },
     "step_install_marker": {
       "type": "object",
-      "description": "Writes ~/printer_data/config/deckhand.json so the connect-screen probe can identify this printer next time. Routes through write_file so it inherits auto-backup.",
+      "description": "Writes ~/printer_data/config/deckhand.json so the connect-screen probe can identify this printer next time.",
       "required": ["kind"],
+      "additionalProperties": false,
       "properties": {
         "kind": {"const": "install_marker"},
-        "id": {"type": "string"},
-        "filename": {"type": "string", "default": "deckhand.json"},
-        "target_dir": {"type": "string", "description": "Default: ~/printer_data/config"},
-        "extra": {"type": "object", "description": "Extra keys to merge into the JSON payload."},
-        "backup": {"type": "boolean", "description": "Default true. See step_write_file.backup."}
+        "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 80},
+        "filename": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 128, "default": "deckhand.json"},
+        "target_dir": {"$ref": "#/$defs/remote_path"},
+        "extra": {"type": "object"},
+        "backup": {"type": "boolean"},
+        "confirm_before_run": {"type": "boolean"},
+        "when": {"type": "string", "maxLength": 500}
       }
     },
     "step_script": {
       "type": "object",
       "required": ["kind", "path"],
+      "additionalProperties": false,
       "properties": {
         "kind": {"const": "script"},
-        "id": {"type": "string"},
-        "path": {"type": "string"},
-        "interpreter": {"type": "string", "default": "bash"},
-        "args": {"type": "array", "items": {"type": "string"}},
-        "timeout_seconds": {"type": "integer", "default": 600},
+        "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 80},
+        "path": {"$ref": "#/$defs/repo_relative_path"},
+        "interpreter": {"type": "string", "pattern": "^[a-zA-Z0-9_/-]+$", "maxLength": 64, "default": "bash"},
+        "args": {"type": "array", "items": {"type": "string", "maxLength": 1024}, "maxItems": 100},
+        "env": {
+          "type": "object",
+          "description": "Environment variables passed to the script. Keys MUST match POSIX shell identifier grammar; values are single-quoted on use so shell metacharacters are inert.",
+          "additionalProperties": {"type": "string", "maxLength": 4096},
+          "patternProperties": {
+            "^[A-Za-z_][A-Za-z0-9_]*$": {}
+          }
+        },
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 14400},
         "ignore_errors": {"type": "boolean"},
         "sudo": {"type": "boolean"},
-        "askpass": {"type": "boolean", "default": true}
+        "askpass": {"type": "boolean"},
+        "confirm_before_run": {"type": "boolean"},
+        "when": {"type": "string", "maxLength": 500}
       }
     },
     "step_conditional": {
       "type": "object",
       "required": ["kind", "when", "then"],
+      "additionalProperties": false,
       "properties": {
         "kind": {"const": "conditional"},
-        "id": {"type": "string"},
-        "when": {
-          "type": "string",
-          "description": "DSL expression. See docs/DSL.md for predicates."
-        },
+        "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 80},
+        "when": {"type": "string", "maxLength": 500},
         "then": {"type": "array"}
       }
     },
     "step_generic": {
       "type": "object",
-      "description": "Fallback matcher for step kinds the schema doesn't yet pin down (ssh_commands, snapshot_paths, apply_services, apply_files, install_firmware, install_stack, link_extras, flash_mcus, os_download, flash_disk, wait_for_ssh, verify). These ARE valid; the schema just doesn't constrain their fields.",
+      "description": "Pinned set of step kinds that aren't yet structurally constrained. Extending this enum is a signal to add a dedicated $def for the step and tighten the schema.",
       "properties": {
         "kind": {
           "type": "string",
-          "not": {"enum": ["write_file", "install_marker", "script", "conditional"]}
+          "enum": [
+            "ssh_commands",
+            "snapshot_paths",
+            "apply_services",
+            "apply_files",
+            "install_firmware",
+            "install_stack",
+            "install_screen",
+            "link_extras",
+            "flash_mcus",
+            "os_download",
+            "flash_disk",
+            "wait_for_ssh",
+            "verify",
+            "prompt",
+            "choose_one",
+            "disk_picker"
+          ]
         }
       }
     }
