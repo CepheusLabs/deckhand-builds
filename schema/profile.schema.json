@@ -275,7 +275,116 @@
       "properties": {
         "enabled": {"type": "boolean"},
         "preconditions": {"type": "array"},
-        "steps": {"type": "array"}
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "id": {"type": "string"},
+              "kind": {"type": "string"}
+            },
+            "oneOf": [
+              {"$ref": "#/$defs/step_write_file"},
+              {"$ref": "#/$defs/step_install_marker"},
+              {"$ref": "#/$defs/step_script"},
+              {"$ref": "#/$defs/step_conditional"},
+              {"$ref": "#/$defs/step_generic"}
+            ]
+          }
+        }
+      }
+    },
+    "step_write_file": {
+      "type": "object",
+      "description": "Destructive-write step. Auto-snapshots the existing target to `<target>.deckhand-pre-<profile-id>-<ts>` (+ `.meta.json` sidecar) before overwriting unless backup=false.",
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": {"const": "write_file"},
+        "id": {"type": "string"},
+        "target": {
+          "type": "string",
+          "description": "Absolute path on the printer. Tilde-expansion of `~/...` is resolved against the SSH user's home."
+        },
+        "template": {
+          "type": "string",
+          "description": "Repo-relative path to a template file. Rendered through the wizard template engine (double-brace substitutions). Mutually exclusive with `content`."
+        },
+        "content": {
+          "type": "string",
+          "description": "Inline content. Mutually exclusive with `template`."
+        },
+        "sudo": {
+          "type": "boolean",
+          "description": "Force elevation. When omitted, Deckhand infers sudo for anything outside the SSH user's home or /tmp."
+        },
+        "mode": {
+          "type": ["string", "integer"],
+          "description": "Octal permission mode, e.g. \"0644\" or 420."
+        },
+        "owner": {
+          "type": "string",
+          "description": "Passed to `sudo install -o <owner>`. No-op without sudo."
+        },
+        "backup": {
+          "type": "boolean",
+          "description": "Default true. Set false to skip the auto-snapshot (dangerous)."
+        },
+        "require_path": {
+          "type": "string",
+          "description": "Skip the step entirely if this absolute path does not exist on the live printer. Gates profile steps that assume a specific vendor layout (e.g. rewriting KlipperScreen's launcher only when KlipperScreen is installed)."
+        }
+      }
+    },
+    "step_install_marker": {
+      "type": "object",
+      "description": "Writes ~/printer_data/config/deckhand.json so the connect-screen probe can identify this printer next time. Routes through write_file so it inherits auto-backup.",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"const": "install_marker"},
+        "id": {"type": "string"},
+        "filename": {"type": "string", "default": "deckhand.json"},
+        "target_dir": {"type": "string", "description": "Default: ~/printer_data/config"},
+        "extra": {"type": "object", "description": "Extra keys to merge into the JSON payload."},
+        "backup": {"type": "boolean", "description": "Default true. See step_write_file.backup."}
+      }
+    },
+    "step_script": {
+      "type": "object",
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": {"const": "script"},
+        "id": {"type": "string"},
+        "path": {"type": "string"},
+        "interpreter": {"type": "string", "default": "bash"},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "timeout_seconds": {"type": "integer", "default": 600},
+        "ignore_errors": {"type": "boolean"},
+        "sudo": {"type": "boolean"},
+        "askpass": {"type": "boolean", "default": true}
+      }
+    },
+    "step_conditional": {
+      "type": "object",
+      "required": ["kind", "when", "then"],
+      "properties": {
+        "kind": {"const": "conditional"},
+        "id": {"type": "string"},
+        "when": {
+          "type": "string",
+          "description": "DSL expression. See docs/DSL.md for predicates."
+        },
+        "then": {"type": "array"}
+      }
+    },
+    "step_generic": {
+      "type": "object",
+      "description": "Fallback matcher for step kinds the schema doesn't yet pin down (ssh_commands, snapshot_paths, apply_services, apply_files, install_firmware, install_stack, link_extras, flash_mcus, os_download, flash_disk, wait_for_ssh, verify). These ARE valid; the schema just doesn't constrain their fields.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "not": {"enum": ["write_file", "install_marker", "script", "conditional"]}
+        }
       }
     }
   }

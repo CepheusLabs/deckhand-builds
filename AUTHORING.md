@@ -924,6 +924,25 @@ predicate rather than scripting it.
 
 ---
 
+## SSH authentication
+
+Deckhand's production flow uses **password auth** against the profile's
+declared default credentials. Once authenticated, it caches the
+password in-memory and uses it as `sudo -S` stdin (via a transient
+askpass helper) so steps that escalate don't need a pty.
+
+**Key auth works too** but with caveats:
+
+| Path                          | Password auth (production)          | Key auth (dev convenience)     |
+|-------------------------------|-------------------------------------|--------------------------------|
+| Initial SSH login             | Profile credentials                 | `~/.ssh/authorized_keys` entry |
+| In-session sudo               | Cached password via `sudo -S`       | User must have NOPASSWD OR the wizard prompts (which fails on no-pty) |
+| State probe + restore         | Full feature set                    | `sudo`-less commands work; `sudo`-wrapped `find /root` falls through silently |
+
+For E2E testing against real printers, either set up NOPASSWD sudo
+for the test user OR ensure the test harness supplies the password
+via `DECKHAND_E2E_PASSWORD`.
+
 ## Flow A - stock-keep
 
 Declares the sequence of operations for transforming a stock install
@@ -1003,9 +1022,92 @@ flows:
         filename: deckhand.json        # optional; default deckhand.json
         # target_dir: ~/printer_data/config   (default; tilde-expanded)
         # extra: { notes: "any extra keys get merged into the JSON" }
+        # backup: true                       (default; see backup retention below)
       - id: run_verifiers
         kind: verify
 ```
+
+Behavior note (Deckhand v26.4.23+): `install_marker` now routes through
+the same `write_file` pipeline, which means a prior `deckhand.json` is
+auto-snapshotted as `<target>.deckhand-pre-<profile-id>-<ts>` (plus a
+`.meta.json` sidecar) before overwrite. Users upgrading from older
+builds who had a hand-edited `deckhand.json` (extra notes, custom
+`deckhand_schema` fields) will see that file preserved on the printer
+the first time this step runs.
+
+### kind: write_file
+
+```yaml
+- id: fix_apt_sources
+  kind: write_file
+  target: /etc/apt/sources.list
+  template: ./scripts/sources.list.bookworm-fallback.tmpl  # OR content: "..."
+  sudo: true                # explicit; default infers from target path
+  mode: "0644"              # octal string; optional
+  owner: root               # passed to `sudo install -o`; optional
+  backup: true              # default; auto-snapshot target before overwrite
+  require_path: /etc/apt    # NEW: skip the step if this path doesn't
+                            # exist on the live printer. Gate steps
+                            # that only make sense on specific distros
+                            # or vendor layouts - e.g. rewriting a
+                            # KlipperScreen launcher only when
+                            # KlipperScreen is actually installed.
+```
+
+- **`sudo:`** - `true` elevates the write; `false` runs as the SSH user;
+  omitting it uses the heuristic "anything outside `/home/<user>/` or
+  `/tmp/` needs sudo."
+- **`mode:`** - passed to `install -m <mode>` when sudo, `chmod` otherwise.
+  Octal string or integer both accepted (`"0644"` or `420`).
+- **`owner:`** - passed to `install -o <owner>`. Silently no-op without sudo.
+- **`backup:`** - when true (default) AND the target exists, Deckhand
+  does `[sudo] cp -p <target> <target>.deckhand-pre-<profile-id>-<ts>`
+  before the overwrite, plus writes a `<backup>.meta.json` sidecar
+  with `{profile_id, profile_version, step_id, created_at_ms,
+  backup_of, deckhand_schema}`. The next run's state probe finds both
+  the backup and its sidecar; the Verify screen lets the user
+  Preview / Restore / Delete them. See "Backup retention" below for
+  filesystem layout, pruning, and cross-profile handling.
+- **`require_path:`** - when set, Deckhand probes `[ -e <require_path> ]`
+  on the printer before staging the write. If the path is absent, the
+  step is skipped with a log line instead of failing. Use this for
+  steps that only make sense when some stock artefact is present (a
+  vendor install tree, a particular config directory).
+
+### Backup retention
+
+Every `write_file` that actually overwrites an existing target leaves
+two siblings behind:
+
+```
+/etc/apt/sources.list                                      # post-write
+/etc/apt/sources.list.deckhand-pre-<profile-id>-<ts>       # byte-exact snapshot
+/etc/apt/sources.list.deckhand-pre-<profile-id>-<ts>.meta.json
+```
+
+- `<profile-id>` is the profile that was driving the write.
+- `<ts>` is `DateTime.now().millisecondsSinceEpoch` UTC.
+- The sidecar is small (~200 bytes) and lets the Verify screen render
+  "created by profile X, step Y, at 2026-04-23 00:30" next to each
+  Restore button.
+
+Legacy backups from Deckhand builds before the sidecar system exist at
+`<target>.deckhand-pre-<ts>` (no profile tag, no sidecar). Deckhand
+still discovers and restores those, but the Verify screen groups them
+under a "Legacy backups without profile metadata" section and warns
+the user to preview before restoring - content could belong to any
+profile previously run against the printer.
+
+Backups are never pruned automatically. The Verify screen's "Prune
+backups older than N days" control (default 30 days) does the sweep
+on demand. The `Keep the newest snapshot per target` option spares
+one backup per `<target>` even if it's old enough to prune, so a
+catastrophic mistake always has at least one rollback path.
+
+Backup discovery uses `find /etc /home /opt /var /srv /root -maxdepth 8`
+with the `/root` leg wrapped in `sudo -n` so root-owned backups are
+visible to the non-root SSH user. Paths outside those roots (unusual
+for printer images) are NOT discovered.
 
 ### kind: script
 
