@@ -35,14 +35,37 @@ landed since the previous tag.
 No installers to build here - profiles are plain files that Deckhand
 fetches at install time, so the release is just a tag + notes.
 
+## One-time setup
+
+This repo carries its own pre-commit hook in `.githooks/pre-commit`.
+After cloning, point git at it once:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook regenerates `registry.yaml` from `printers/*/profile.yaml`
+whenever you commit a profile change, so the two files cannot drift.
+You'll also need a sibling `deckhand` checkout (the hook runs the
+`deckhand_profile_lint` tool that lives in
+`<parent>/deckhand/packages/deckhand_profile_lint/`); set
+`DECKHAND_LINT_DIR` if your layout differs.
+
 ## Adding a new printer profile
 
 1. Read [`AUTHORING.md`](AUTHORING.md).
 2. Create `printers/<id>/` with at minimum `profile.yaml` + `README.md`,
    starting at `status: stub`.
-3. Add your profile to `registry.yaml`.
+3. Commit the profile. The pre-commit hook adds the matching
+   `registry.yaml` entry for you — `registry.yaml` is generated from
+   the profile.yaml files and should never be hand-edited.
 4. Open a PR.
 5. On merge, the next release tag rolls your profile out.
 
 Promote `stub` → `alpha` → `beta` → `stable` in follow-up PRs as you
-validate each flow on real hardware.
+validate each flow on real hardware. The hook re-syncs `registry.yaml`
+on each promotion commit; if you ever need to do it manually:
+
+```sh
+dart run deckhand_profile_lint --root . --regenerate-registry
+```

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# pre-commit: regenerate registry.yaml whenever a profile changes.
+#
+# The registry duplicates a handful of fields from each
+# printers/<id>/profile.yaml (id, display_name, manufacturer, model,
+# status). Hand-editing one without the other causes drift — the
+# Deckhand picker reads from registry while the rest of the wizard
+# reads from profile, so users see inconsistent info. To make drift
+# structurally impossible, we treat the registry as a derived view
+# and regenerate it on every commit that touches a profile.
+#
+# Install once per checkout:
+#   git config core.hooksPath .githooks
+#
+# The deckhand_profile_lint tool lives in the sibling deckhand
+# checkout. Default search path can be overridden via the
+# DECKHAND_LINT_DIR environment variable.
+
+set -euo pipefail
+
+# Bail early if no profile or schema files are staged — pre-commit
+# fires on every commit, but registry regen only matters when the
+# input has actually changed.
+staged=$(git diff --cached --name-only --diff-filter=ACMRTU || true)
+if ! echo "$staged" | grep -qE '^(printers/[^/]+/profile\.yaml|schema/profile\.schema\.json)$'; then
+  exit 0
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+LINT_DIR="${DECKHAND_LINT_DIR:-$REPO_ROOT/../deckhand/packages/deckhand_profile_lint}"
+if [[ ! -d "$LINT_DIR" ]]; then
+  cat >&2 <<EOF
+pre-commit: deckhand_profile_lint not found at:
+  $LINT_DIR
+
+The hook needs the lint tool to regenerate registry.yaml from the
+profile.yaml files you just staged. Either:
+  * Clone the deckhand repo as a sibling so the default path resolves:
+      <parent>/deckhand            (lint package)
+      <parent>/deckhand-builds     (this repo)
+  * Or set DECKHAND_LINT_DIR to the deckhand_profile_lint package path.
+
+Skipping registry regen — registry/profile drift is now possible until
+this is fixed. Run with --no-verify ONLY if you know the registry is
+already up to date.
+EOF
+  exit 1
+fi
+
+if ! command -v dart >/dev/null 2>&1; then
+  echo "pre-commit: dart binary not on PATH; cannot regenerate registry" >&2
+  exit 1
+fi
+
+echo "pre-commit: regenerating registry.yaml from staged profile changes…"
+(
+  cd "$LINT_DIR"
+  dart run bin/deckhand_profile_lint.dart \
+    --root "$REPO_ROOT" \
+    --regenerate-registry
+)
+
+# Stage the regenerated registry so it lands in the same commit as
+# the profile edit that caused it. Without this the registry would
+# update on disk but the commit wouldn't include the change.
+git add "$REPO_ROOT/registry.yaml"
+
+# Defense in depth: re-lint without the regen flag to confirm there's
+# no remaining drift. Catches edge cases where the regen produced
+# output the lint subsequently rejects (schema violations, etc.).
+(
+  cd "$LINT_DIR"
+  dart run bin/deckhand_profile_lint.dart --root "$REPO_ROOT"
+)
