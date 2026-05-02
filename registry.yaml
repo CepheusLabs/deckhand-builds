@@ -20,7 +20,7 @@ profiles:
     display_name: Phrozen Arco
     manufacturer: Phrozen
     model: Arco
-    status: alpha
+    status: beta
     directory: printers/phrozen-arco
     latest_tag: null
 

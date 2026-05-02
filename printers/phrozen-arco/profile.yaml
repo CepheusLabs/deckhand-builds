@@ -123,16 +123,37 @@ os:
     # paste the 64-hex value here alongside the new URL. Do NOT use
     # `redirect.armbian.com` / `*_current` floating pointers in
     # production - they defeat reproducibility.
+    # NOTE on Debian Bookworm: Armbian no longer publishes a Bookworm
+    # build for the MKSpi target — only trixie / noble / forky / resolute.
+    # If a contributor wants to revive Bookworm support, paste a
+    # community-built image URL + sha256 here. Until then, Trixie
+    # (Debian 13) is the Debian-family default and Noble (Ubuntu 24.04
+    # LTS) is the alternative for users who prefer the Ubuntu side.
     - id: armbian-trixie-minimal
-      display_name: Armbian Trixie (CLI) for MKS Pi
+      display_name: Armbian Trixie (Debian 13, CLI) for MKS Pi
       architecture: aarch64
-      url: https://armbian.lv.auroradev.org/cache/artifacts/mkspi/archive/Armbian_community_26.2.0-trunk.792_Mkspi_trixie_current_6.18.24_minimal.img.xz
-      sha256: "56218ffb747a4d7a2cb46f28250a699b23b336939179ca2d29ed82e29066a509"
+      url: https://armbian.lv.auroradev.org/cache/artifacts/mkspi/archive/Armbian_community_26.2.0-trunk.821_Mkspi_trixie_current_6.18.26_minimal.img.xz
+      sha256: "43f0e0e5cf1adf47dc56b740aea94852be14f057eb1ebeeceb353fee702c7b2d"
       size_bytes_approx: 400000000
       recommended: true
       notes: |
-        Ships Python 3.12, systemd, clean Armbian base. No Phrozen
-        services. Minimal CLI image (no desktop environment).
+        Debian 13 (Trixie). Ships Python 3.12, systemd, clean Armbian
+        base. No Phrozen services. Minimal CLI image (no desktop
+        environment). Recommended — closest Debian-family option to
+        the Bookworm builds Armbian used to publish.
+    - id: armbian-noble-minimal
+      display_name: Armbian Noble (Ubuntu 24.04 LTS, CLI) for MKS Pi
+      architecture: aarch64
+      url: https://armbian.lv.auroradev.org/cache/artifacts/mkspi/archive/Armbian_community_26.2.0-trunk.606_Mkspi_noble_current_6.18.18_minimal.img.xz
+      sha256: "7779b549db52d3f524b5a1ea6434d1a510cc25107f26abb7d02148751e782f58"
+      size_bytes_approx: 400000000
+      recommended: false
+      notes: |
+        Ubuntu 24.04 LTS (Noble). Ships Python 3.12, systemd, clean
+        Armbian base. No Phrozen services. Pick this if you prefer
+        Ubuntu LTS over Debian — same Klipper/Kalico install steps
+        either way, just a different package manager and release
+        cadence.
   boot_mode: mbr
 
 ssh:
