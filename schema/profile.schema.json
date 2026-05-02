@@ -355,6 +355,11 @@
               "role": {"type": "string", "maxLength": 40}
             }
           }
+        },
+        "snapshot_paths": {
+          "type": "array",
+          "description": "Profile-declared paths to capture in the S145 stock-config snapshot screen. Each entry becomes a checkbox row; the user's selection is consumed by the snapshot_archive step. See docs/WIZARD-FLOW.md (S145-snapshot).",
+          "items": {"$ref": "#/$defs/stock_snapshot_path"}
         }
       }
     },
@@ -501,7 +506,11 @@
         "backup": {"type": "boolean"},
         "require_path": {"$ref": "#/$defs/remote_path"},
         "confirm_before_run": {"type": "boolean"},
-        "when": {"type": "string", "maxLength": 500}
+        "when": {"type": "string", "maxLength": 500},
+        "safe_to_rerun": {"type": "boolean"},
+        "decision_keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "idempotency": {"$ref": "#/$defs/step_idempotency"},
+        "note": {"type": "string", "maxLength": 4000, "description": "Free-form documentation captured next to the step. Surfaced in profile-lint output and the wizard's debug view."}
       }
     },
     "step_install_marker": {
@@ -517,7 +526,11 @@
         "extra": {"type": "object"},
         "backup": {"type": "boolean"},
         "confirm_before_run": {"type": "boolean"},
-        "when": {"type": "string", "maxLength": 500}
+        "when": {"type": "string", "maxLength": 500},
+        "safe_to_rerun": {"type": "boolean"},
+        "decision_keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "idempotency": {"$ref": "#/$defs/step_idempotency"},
+        "note": {"type": "string", "maxLength": 4000, "description": "Free-form documentation captured next to the step. Surfaced in profile-lint output and the wizard's debug view."}
       }
     },
     "step_script": {
@@ -543,7 +556,11 @@
         "sudo": {"type": "boolean"},
         "askpass": {"type": "boolean"},
         "confirm_before_run": {"type": "boolean"},
-        "when": {"type": "string", "maxLength": 500}
+        "when": {"type": "string", "maxLength": 500},
+        "safe_to_rerun": {"type": "boolean"},
+        "decision_keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "idempotency": {"$ref": "#/$defs/step_idempotency"},
+        "note": {"type": "string", "maxLength": 4000, "description": "Free-form documentation captured next to the step. Surfaced in profile-lint output and the wizard's debug view."}
       }
     },
     "step_conditional": {
@@ -554,18 +571,51 @@
         "kind": {"const": "conditional"},
         "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 80},
         "when": {"type": "string", "maxLength": 500},
-        "then": {"type": "array"}
+        "then": {"type": "array"},
+        "safe_to_rerun": {"type": "boolean"},
+        "decision_keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "idempotency": {"$ref": "#/$defs/step_idempotency"},
+        "note": {"type": "string", "maxLength": 4000, "description": "Free-form documentation captured next to the step. Surfaced in profile-lint output and the wizard's debug view."}
+      }
+    },
+    "step_idempotency": {
+      "type": "object",
+      "description": "Per-step idempotency contract. See docs/STEP-IDEMPOTENCY.md for the full model.",
+      "additionalProperties": false,
+      "properties": {
+        "pre_check": {
+          "type": "string",
+          "description": "Shell command run on the printer before the step itself. Exit 0 means 'work already done; skip the step'. Cheap probes only — no destructive operations."
+        },
+        "resume": {
+          "type": "string",
+          "enum": ["restart", "cleanup_then_restart", "continue"],
+          "description": "What the controller does when it sees an in_progress record for this step on resume. `restart` discards partial state and starts over; `cleanup_then_restart` runs `cleanup` first; `continue` indicates the step is internally checkpointed and can pick up where it left off."
+        },
+        "cleanup": {
+          "type": "string",
+          "description": "Shell command run before a `cleanup_then_restart` resume. Use to remove partial output (rm -rf the half-cloned dir, etc.)."
+        },
+        "post_check": {
+          "type": "string",
+          "description": "Shell command run after the step claims success. Exit 0 means the step really did the work. Mismatch flips the step's status from completed to failed."
+        },
+        "inputs": {
+          "type": "object",
+          "description": "Optional explicit input map for hashing. When present, overrides the default `kind+id+decision_keys` derivation."
+        }
       }
     },
     "step_generic": {
       "type": "object",
-      "description": "Pinned set of step kinds that aren't yet structurally constrained. Extending this enum is a signal to add a dedicated $def for the step and tighten the schema.",
+      "description": "Pinned set of step kinds that aren't yet structurally constrained. Extending this enum is a signal to add a dedicated $def for the step and tighten the schema. Kinds that already have a dedicated $def (`conditional`, `install_marker`, `write_file`, `script`) are deliberately excluded from this enum so the `oneOf` in flow_spec.steps.items resolves to exactly one branch — see PR notes 2026-05-01 (the inclusion of those kinds here was the cause of `oneOf: violated Too many elements` errors on every alpha-status profile).",
       "properties": {
         "kind": {
           "type": "string",
           "enum": [
             "ssh_commands",
             "snapshot_paths",
+            "snapshot_archive",
             "apply_services",
             "apply_files",
             "install_firmware",
@@ -581,7 +631,56 @@
             "choose_one",
             "disk_picker"
           ]
+        },
+        "safe_to_rerun": {
+          "type": "boolean",
+          "description": "When true, the step is asserted by the profile author to be safe to re-execute blindly on resume. Suppresses the profile-lint warning that otherwise fires when a step has no idempotency block. Reserve for genuinely no-op-on-rerun work — pure logging, prompts, etc."
+        },
+        "decision_keys": {
+          "type": "array",
+          "description": "Subset of WizardState decision keys whose values affect this step's behaviour. The controller hashes these alongside the step's id+kind to produce the input_hash recorded in the run-state file. Default (omitted) hashes the entire decision graph, which is loud but safe.",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "idempotency": {
+          "type": "object",
+          "description": "Per-step idempotency contract. See docs/STEP-IDEMPOTENCY.md for the full model.",
+          "properties": {
+            "pre_check": {
+              "type": "string",
+              "description": "Shell command run on the printer before the step itself. Exit 0 means 'work already done; skip the step'. Cheap probes only — no destructive operations."
+            },
+            "resume": {
+              "type": "string",
+              "enum": ["restart", "cleanup_then_restart", "continue"],
+              "description": "What the controller does when it sees an in_progress record for this step on resume. `restart` discards partial state and starts over; `cleanup_then_restart` runs `cleanup` first; `continue` indicates the step is internally checkpointed and can pick up where it left off."
+            },
+            "cleanup": {
+              "type": "string",
+              "description": "Shell command run before a `cleanup_then_restart` resume. Use to remove partial output (rm -rf the half-cloned dir, etc.)."
+            },
+            "post_check": {
+              "type": "string",
+              "description": "Shell command run after the step claims success. Exit 0 means the step really did the work. Mismatch flips the step's status from completed to failed."
+            },
+            "inputs": {
+              "type": "object",
+              "description": "Optional explicit input map for hashing. When present, overrides the default `kind+id+decision_keys` derivation. Use when a step's behaviour depends on profile-side inputs the controller can't otherwise see."
+            }
+          }
         }
+      }
+    },
+    "stock_snapshot_path": {
+      "type": "object",
+      "description": "One row in stock_os.snapshot_paths. Captured by the S145 stock-config snapshot screen and consumed by the snapshot_archive step.",
+      "required": ["id", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9_-]+$", "maxLength": 80},
+        "display_name": {"type": "string", "maxLength": 120},
+        "path": {"$ref": "#/$defs/remote_path"},
+        "default_selected": {"type": "boolean"},
+        "helper_text": {"type": "string", "maxLength": 500}
       }
     }
   }
