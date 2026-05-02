@@ -4,7 +4,7 @@ profile_version: 0.1.0
 display_name: Phrozen Arco
 manufacturer: Phrozen
 model: Arco
-status: alpha
+status: beta
 maintainers:
   - { name: "Cepheus Labs", contact: "support@cepheuslabs.com" }
 
@@ -694,24 +694,22 @@ flows:
       - { kind: free_space_min, mountpoint: "/home/mks", bytes: 1500000000, severity: block }
       - { kind: not_printing, severity: warn }
     steps:
-      - id: backup_prompt
-        kind: prompt
-        message: |
-          Before continuing, back up the whole eMMC to an image file.
-          Deckhand can do this for you (dd the physical disk, via a USB
-          eMMC adapter). If you've never backed up, do it now - it's your
-          only path back to stock firmware if something goes wrong.
-        actions:
-          - { id: backup_now, label: Back up now (recommended) }
-          - { id: i_have_one, label: I already have a backup }
-          - { id: skip, label: Skip (not recommended) }
+      # eMMC-image backup recommendation lives on S145-snapshot
+      # (Save your current configuration) so the user makes ONE
+      # consolidated decision about what to preserve before the
+      # install rewrites things, instead of getting prompted again
+      # mid-install with no working escape hatch. The snapshot screen
+      # carries both the directory-level snapshot config AND the
+      # eMMC-image backup acknowledgement.
       - id: stop_services
         kind: ssh_commands
+        safe_to_rerun: true   # `systemctl stop || true` and `killall ... 2>/dev/null || true` are both no-ops on already-stopped processes.
         commands:
           - "sudo systemctl stop klipper KlipperScreen moonraker crowsnest || true"
           - "sudo killall phrozen_master frpc phrozen_slave_ota ota_control voronFDM mksclient 2>/dev/null || true"
       - id: snapshot_paths
         kind: snapshot_paths
+        safe_to_rerun: true   # snapshot_paths timestamps each run; reruns produce additional snapshots, never destructive.
         paths: [klipper_install, klippy_env]
       # fix_apt_sources is a Buster-only workaround: stock Arco ships
       # with mirrors.aliyun.com which hasn't carried the EOL buster
@@ -767,13 +765,28 @@ flows:
       - id: install_firmware
         kind: install_firmware
         confirm_before_run: true
+        idempotency:
+          # Skip if the venv exists AND the install_path is the chosen
+          # firmware's git origin. install_firmware step machinery
+          # handles the resume internally; cleanup_then_restart moves
+          # a half-cloned tree out of the way before retrying.
+          pre_check: "[ -d {{firmware.selected.venv_path}}/bin ] && [ \"$(git -C {{firmware.selected.install_path}} remote get-url origin 2>/dev/null)\" = \"{{firmware.selected.repo}}\" ]"
+          resume: cleanup_then_restart
+          cleanup: "[ -d {{firmware.selected.install_path}} ] && [ ! -f {{firmware.selected.venv_path}}/bin/python ] && mv {{firmware.selected.install_path}} {{firmware.selected.install_path}}.deckhand-partial || true"
       - id: install_klipper_extras
         kind: link_extras
+        safe_to_rerun: true   # idempotent overlay — same files copied to same target with deterministic backup naming.
         sources:
           - ./klipper-extras/phrozen_dev/
           - ./klipper-extras/CatchIP.py
       - id: install_stack
         kind: install_stack
+        idempotency:
+          # install_stack drives kiauh / moonraker / web UI / crowsnest
+          # installs; each component checks its own existing-install
+          # state. continue resume picks up at the first not-yet-installed
+          # component.
+          resume: continue
         components:
           - moonraker
           - "{{stack.webui.selected}}"
@@ -781,8 +794,17 @@ flows:
           - crowsnest
       - id: apply_services_decisions
         kind: apply_services
+        idempotency:
+          # Drives systemd state from the wizard's services-block
+          # decisions; reapplying is idempotent (already-disabled stays
+          # disabled, etc.).
+          resume: continue
       - id: apply_files_decisions
         kind: apply_files
+        idempotency:
+          # rm -f / cp -p / sed -i are all idempotent in the patterns we
+          # use, so reapplying produces the same on-disk state.
+          resume: continue
       - id: rewrite_boot_hook
         kind: write_file
         target: "/home/mks/KlipperScreen/scripts/KlipperScreen-start.sh"
@@ -791,14 +813,33 @@ flows:
         mode: "0755"
         owner: mks
         confirm_before_run: true
+        idempotency:
+          # Template-driven write. Auto-snapshots prior file via
+          # write_file's default backup=true. Reruns produce a new
+          # snapshot alongside the existing one and overwrite the
+          # active file with the same template-rendered content.
+          resume: restart
+          post_check: "grep -q 'KlipperScreen-start.sh (Deckhand-rewritten)' /home/mks/KlipperScreen/scripts/KlipperScreen-start.sh"
       - id: install_screen
         kind: install_screen
+        idempotency:
+          # install_screen step machinery compares the user's wizard
+          # screen choice against what's currently active and no-ops
+          # when matching.
+          resume: continue
       - id: flash_mcus
         kind: flash_mcus
         which: [main, toolhead]
         confirm_before_run: true
+        idempotency:
+          # MCU flashes are short and not destructive on rerun, but we
+          # restart on resume because a half-finished Katapult flash
+          # leaves the MCU in bootloader mode and the easiest recovery
+          # is to retry from scratch.
+          resume: restart
       - id: start_services
         kind: ssh_commands
+        safe_to_rerun: true   # `systemctl daemon-reload` + `enable --now` are idempotent.
         commands:
           - "sudo systemctl daemon-reload"
           - "sudo systemctl enable --now klipper moonraker"
@@ -829,35 +870,55 @@ flows:
         kind: flash_disk
         verify_after_write: true
         confirm_before_run: true
+        idempotency:
+          # flash_disk verifies + tracks its own write progress; the
+          # cleanup-then-restart resume defers to the step machinery's
+          # internal verify-and-skip path.
+          resume: cleanup_then_restart
+          cleanup: "true"
       - id: flash_done_prompt
         kind: prompt
+        safe_to_rerun: true
         message: |
           Flash complete. Put the eMMC back in the printer and power on.
           When you can SSH to the printer, click Continue.
       - id: wait_for_ssh
         kind: wait_for_ssh
         timeout_seconds: 600
+        safe_to_rerun: true   # Read-only; just blocks until SSH responds.
       - id: first_boot_setup
         kind: ssh_commands
+        safe_to_rerun: true   # apt-get update + install -y are idempotent.
         commands:
           - "sudo apt-get update"
           - "sudo apt-get install -y git python3-venv build-essential"
       - id: install_firmware
         kind: install_firmware
+        idempotency:
+          pre_check: "[ -d {{firmware.selected.venv_path}}/bin ] && [ \"$(git -C {{firmware.selected.install_path}} remote get-url origin 2>/dev/null)\" = \"{{firmware.selected.repo}}\" ]"
+          resume: cleanup_then_restart
+          cleanup: "[ -d {{firmware.selected.install_path}} ] && [ ! -f {{firmware.selected.venv_path}}/bin/python ] && mv {{firmware.selected.install_path}} {{firmware.selected.install_path}}.deckhand-partial || true"
       - id: install_stack
         kind: install_stack
+        idempotency:
+          resume: continue
         components: [moonraker, "{{stack.webui.selected}}", kiauh, crowsnest]
       - id: install_klipper_extras
         kind: link_extras
+        safe_to_rerun: true
         sources:
           - ./klipper-extras/phrozen_dev/
           - ./klipper-extras/CatchIP.py
       - id: install_screen
         kind: install_screen
+        idempotency:
+          resume: continue
       - id: flash_mcus
         kind: flash_mcus
         which: [main, toolhead]
         confirm_before_run: true
+        idempotency:
+          resume: restart
       - id: run_verifiers
         kind: verify
       # install_marker is also present on the fresh_flash flow so a

@@ -1,0 +1,41 @@
+#!/bin/bash
+# /boot/scripts/btt_init.sh (Deckhand-rewritten)
+#
+# Replaces Sovol's stock btt_init.sh, which on every boot backgrounded
+# four daemons we don't want under Deckhand:
+#
+#   ./connect_wifi.sh      — NetworkManager already remembers wifi
+#                            without this; stock branch also reads
+#                            ~/printer_data/gcodes/USB/wifi.cfg from
+#                            any plugged-in USB stick (physical-access
+#                            wifi-takeover vector).
+#   ./file_change_save.sh  — inotify + sync watcher on
+#                            ~/printer_data/config; Klipper/Moonraker
+#                            already handle persistence on writes.
+#   ./ota_service.sh       — Sovol's Comgrow-hosted OTA channel.
+#                            Disabled here in favour of explicit
+#                            user-initiated update paths via KIAUH /
+#                            Moonraker's update_manager.
+#
+# Kept behaviour:
+#   - Recursive chown of /home/sovol/ so user-space writes always
+#     resolve to the sovol user even if a vendor script earlier did
+#     something with sudo.
+#   - The /boot/gcode/ sweep — drop a *.gcode file on the FAT boot
+#     partition over a card reader and it lands in the gcode queue.
+#   - system_cfg.sh — applies user-overridable knobs from
+#     /boot/system.cfg (timezone, KS rotation, touch sound/vibration,
+#     auto-brightness). Wifi credential fields in that file are
+#     cleared by Deckhand's separate clear_boot_system_cfg_wifi.sh.
+
+sudo chown sovol:sovol /home/sovol/ -R
+
+cd /boot/gcode
+if ls *.gcode > /dev/null 2>&1; then
+    sudo cp ./*.gcode /home/sovol/printer_data/gcodes -fr
+    sudo rm ./*.gcode -fr
+fi
+sync
+
+cd /boot/scripts
+./system_cfg.sh &

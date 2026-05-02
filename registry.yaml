@@ -28,7 +28,7 @@ profiles:
     display_name: Sovol Zero
     manufacturer: Sovol
     model: Zero
-    status: stub
+    status: alpha
     directory: printers/sovol-zero
     latest_tag: null
 
@@ -36,6 +36,6 @@ profiles:
     display_name: Sovol SV08 Max
     manufacturer: Sovol
     model: SV08 Max
-    status: stub
+    status: alpha
     directory: printers/sovol-sv08-max
     latest_tag: null

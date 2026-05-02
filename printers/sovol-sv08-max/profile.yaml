@@ -1,55 +1,1611 @@
 schema_version: 1
 profile_id: sovol-sv08-max
-profile_version: 0.0.1
+profile_version: 0.2.0
 display_name: Sovol SV08 Max
 manufacturer: Sovol
 model: SV08 Max
-status: stub
+status: alpha
 maintainers:
   - { name: "Cepheus Labs", contact: "support@cepheuslabs.com" }
 
-# Placeholder profile. Hardware facts, detection rules, stock-OS inventory,
-# and flow declarations are not yet filled in. Contributions welcome.
+# Status: alpha. Hardware/identity/services blocks are verified against
+# a live audit (see installer/.audits/sovol-sv08-max-20260501/) and
+# every load-bearing artifact is vendored from Sovol's published source
+# at https://github.com/Sovol3d/SV08MAX (mirrored 2026-05-01):
+#
+#   configs/        - canonical stock printer.cfg + chamber_hot.cfg +
+#                     Macro.cfg + plr.cfg + get_ip.cfg + moonraker.conf
+#                     + mainsail.cfg + crowsnest.conf etc.
+#   klipper-extras/ - Sovol-original / Sovol-modified klippy modules
+#                     (z_offset_calibration.py, probe_pressure.py,
+#                     buffer_stepper.py, modified probe_eddy_current.py
+#                     / ldc1612.py / lis2dw.py).
+#   firmware/       - flash_can.py + the three *_update_fw.sh wrappers,
+#                     build configs (main-mcu-h750.config and
+#                     toolhead-chamber-mcu-f103.config), plus the
+#                     pre-built main-MCU firmware blob (mcu_klipper.bin,
+#                     28,996 bytes from MKSDEB/root/klipper.bin).
+#   screen-daemon/  - zhongchuang_klipper full source (CMake + C++17,
+#                     boost_system + curl + wpa_client) plus the
+#                     systemd unit file we'll install.
+#   scripts/home/   - factory_resets.sh, plr.sh, clear_plr.sh, get_ip.sh,
+#                     ota_client.sh — the user-invokable scripts wired
+#                     into Klipper macros.
+#   scripts/pyhelper/ - send_ip.py, restart_firmware.py, ota_process.py.
+#   scripts/btt_init.sh.tmpl - Deckhand-rewritten boot orchestrator.
+#
+# What is NOT vendored:
+#   - The toolhead-MCU and chamber-MCU pre-built firmware blobs
+#     (Sovol only published the main-MCU blob in MKSDEB). These
+#     are built from source on stock_keep / fresh_flash via the
+#     toolhead-chamber-mcu-f103.config build config against the
+#     Sovol klipper tree.
+#   - The closed-source ZhongChuang `.tft` panel firmware
+#     (`众创klipper.tft.bak`). Whatever ships on the panel is the
+#     baseline; not redistributed by Deckhand.
+#
+# This profile shares the SPI-XI image lineage with sovol-zero — the
+# stock_os.services and stock_os.files blocks deliberately mirror
+# sovol-zero/profile.yaml so the two look like siblings to the picker.
+# Divergent fields (build_volume, board_model, screen daemon,
+# chamber heater section name, btt_init.sh tweaks) are flagged at
+# the point of divergence with comments.
+
+compatible_with:
+  firmware_variants:
+    - id: default
+      display_name: Sovol SV08 Max (stock SPI-XI image)
+      notes: |
+        Single SKU observed. Unlike the Sovol Zero, the Max does NOT
+        ship a Sovol-published debian update package (`dpkg -l` returns
+        no `sv08*-update-packge` matches). Factory provisioning
+        happened via shell scripts and direct file copies — the
+        boot-time OTA daemon is also commented out of
+        /boot/scripts/btt_init.sh, so this SKU is not on Sovol's
+        Comgrow OTA channel out of the box.
+
+# Hosts the install flow needs to reach.
+required_hosts:
+  - github.com               # Sovol3d/SV08MAX, KalicoCrew/kalico, Klipper3d/klipper, mainsail-crew, fluidd-core, Arksine/moonraker, dw-0/kiauh
+  - raw.githubusercontent.com
+  - codeload.github.com
+  - objects.githubusercontent.com  # release-asset CDN
+  - deb.debian.org
+  - security.debian.org
+  - deb.nodesource.com       # zhongchuang_klipper build dep on Node 22
+  - pypi.org
+  - files.pythonhosted.org
+  # Armbian image hosts. dl.armbian.com redirects through cache.* and
+  # community mirror(s); listing both keeps batch host-approval honest.
+  - dl.armbian.com
+  - cache.armbian.com
+  - armbian.lv.auroradev.org
+
+identification:
+  # Tiered. marker_file is the post-install long-term identifier
+  # Deckhand writes; the rest are stock-image fingerprints.
+  marker_file: deckhand.json
+  hostname_patterns:
+    - '^SPI-XI(-\d+)?$'
+  # Note: the moonraker-obico.cfg [meta] block ("printer_model: SOVOL
+  # SV08 MAX" / "board_model: H616_JC_6Z_5160_V1.2") is the strongest-
+  # but-soft identifier — surfaced via stock_os.detections below
+  # rather than here, since the schema's identification block is a
+  # closed set of marker_file / moonraker_objects / hostname_patterns.
+  # Mirrors the Sovol Zero profile's handling of the same constraint.
 
 hardware:
-  architecture: null
+  architecture: aarch64
   sbc:
-    soc: null
-    board: null
-  kinematics: null
-  build_volume_mm: null
+    soc: allwinner-h616
+    board: bigtreetech-cb1
+    emmc_size_bytes: 31289507840   # ~32 GB on the Max vs ~8 GB on the Zero
+  kinematics: corexy
+  # Confirmed in printer.cfg: position_max X=502 / Y=505 / Z=505,
+  # mesh_max 476×490 (~120 mm of edge unreachable to the bed-mesh
+  # probe but reachable to the toolhead).
+  build_volume_mm: { x: 500, y: 505, z: 505 }
+  steppers:
+    # X/Y SPI 5160s here run at 3.0 A vs the Zero's 3.5 A — the Max's
+    # gantry mass is higher but the run_current is tuned slightly
+    # lower. Worth preserving the exact value if we ever auto-generate
+    # printer.cfg overrides.
+    - { axis: x, driver: tmc5160, mode: spi, run_current: 3.0 }
+    - { axis: y, driver: tmc5160, mode: spi, run_current: 3.0 }
+    - { axis: z, driver: tmc2209, mode: uart, count: 4, gear_ratio: "80:12" }
+    - { axis: extruder, driver: tmc2209, mode: uart }
+  sensors:
+    - { kind: thermistor, name: extruder, source: ntc, notes: "Custom Sovol thermistor table 'extruder_thermistor' in printer.cfg (resistance1 1268.6 @ 25 °C — non-standard, looks like a PT1000-shaped curve)" }
+    - { kind: thermistor, name: bed, source: ntc, notes: "Sovol 'bed_thermistor' table, 100K NTC at 25 °C, max_temp 120 °C" }
+    - { kind: thermistor, name: chamber, source: ntc, notes: "EPCOS-shaped 100K NTC via hot_mcu PA5; chamber heater max_temp 65 °C" }
+    - { kind: filament_switch, name: switch_sensor, pin: "main:PB2" }
+    - { kind: filament_motion, name: encoder_sensor, pin: "main:PE7" }
+    - { kind: accelerometer, name: lis2dw, location: toolhead, transport: spi, notes: "On extra_mcu PB12-PB15, axes_map: x,z,y" }
+    - { kind: eddy_probe, name: eddy, sensor: ldc1612, transport: i2c, notes: "On extra_mcu i2c2 — eddy-current/scanner-style, z_offset 3.5, x_offset -19.8, y_offset -0.75" }
+  features:
+    - corexy
+    - quad_gantry_level         # 4-Z, gantry_corners (-70,-40)→(550,600), 4 corner points
+    - high_acceleration         # printer.cfg: max_velocity 700, max_accel 40000
+    - eddy_current_z_probe
+    - heated_chamber            # max 65 °C, watermark control via [heater_generic chamber_temp]
+    - chamber_fan_with_tachometer
+    - dual_part_cooling_fans    # fan0 (front) + fan1 (back), both on toolhead MCU
+    - auxiliary_part_fan        # fan2 on main MCU PB0
+    - exhaust_fan               # fan3 on main MCU PE11
+    - filament_runout_sensor
+    - filament_motion_encoder
+    - power_loss_recovery
+    - touchscreen_serial_tft    # the primary UI; see screens.zhongchuang_serial_tft
+    - touchscreen_hdmi_optional # KlipperScreen on HDMI; see screens.klipperscreen_hdmi
 
 os:
   stock:
-    distro: null
-    version: null
-  fresh_install_options: []
+    distro: debian
+    version: "11"
+    codename: bullseye
+    python: "3.9.2"
+    image_brand: "SPI-XI 2.3.3"
+    armbian_derived: true
+    notes: |
+      Same base image as the Sovol Zero — Debian Bullseye with
+      Sovol-rebadged /etc/os-release ("SPI-XI 2.3.3 Bullseye"),
+      Armbian-derived (many `armbian-*` services + standard armbian
+      motd scripts) but with /etc/armbian-release stripped. Kernel
+      5.16.17-sun50iw9 #2.3.3 SMP, built on a Chinese-locale build
+      host. The Max's image is a later spin than the Zero's: smaller
+      vendor footprint (no sv08max-update-packge dpkg), OTA daemon
+      commented out at boot, and `bullseye-backports` commented out
+      of /etc/apt/sources.list (the Zero leaves backports enabled).
+  fresh_install_options:
+    # SECURITY: sha256 is schema-required for every fresh_install entry.
+    # The download sidecar enforces the match before the elevated
+    # helper writes anything to the eMMC.
+    #
+    # Pinned to a specific Armbian community build for the BigTreeTech
+    # CB1 (Allwinner H616). Bumping requires fetching the new .sha
+    # file and pasting the 64-hex value alongside the new URL.
+    #   curl https://dl.armbian.com/bigtreetech-cb1/Trixie_current_minimal.sha
+    # Do NOT use the floating `*_current` pointer URLs in the profile
+    # — they defeat reproducibility. The .sha endpoint is fine to
+    # poll for bumps.
+    #
+    # Armbian's BTT CB1 builds are: Trixie minimal (recommended),
+    # Forky (Debian 14 — bleeding edge), Plucky (Ubuntu — different
+    # apt source layout). Bookworm minimal isn't currently published
+    # for the CB1; only the homeassistant-bundled Bookworm variant
+    # is available, which carries unwanted services. So Trixie is
+    # the recommended path until Sovol or Armbian publishes a
+    # Bookworm minimal again.
+    - id: armbian-trixie-cb1-minimal
+      display_name: Armbian Trixie (CLI minimal) for BigTreeTech CB1
+      architecture: aarch64
+      url: https://armbian.lv.auroradev.org/dl/bigtreetech-cb1/archive/Armbian_26.2.1_Bigtreetech-cb1_trixie_current_6.12.68_minimal.img.xz
+      sha256: "99173d7679a31a516ab48103763672f01eb98a83ddfe07d63f85c51635816fbc"
+      size_bytes_approx: 230000000
+      recommended: true
+      notes: |
+        Debian Trixie + kernel 6.12.68 LTS, Python 3.13, minimal CLI
+        image (no desktop environment, no Sovol vendor services).
+        Boots cleanly on the BTT CB1's H616 — confirmed via
+        Armbian's `Trixie_current_minimal` floating pointer on
+        2026-05-01. See firmware/README.md and the fresh_flash
+        flow's post-image-flash steps for the Klipper / zhongchuang
+        / MCU-firmware build chain.
+  boot_mode: mbr
+  boot_partition:
+    device_pattern: "mmcblk*p1"
+    mountpoint: /boot
+    fstype: vfat
+    label: BOOT
+    contains: ["scripts/", "system.cfg", "gcode/"]
+    notes: |
+      Same layout as the Sovol Zero. 256 MB FAT16 /boot partition
+      with /boot/scripts/ (btt_init.sh + helpers), user-editable
+      /boot/system.cfg (timezone, hostname, KS rotation, BTT_PAD7
+      toggle, wifi credentials), /boot/gcode/ drop-folder swept on
+      boot. Rewrites of the boot scripts on stock_keep should
+      preserve the partition's vfat layout.
 
 ssh:
   default_port: 22
-  default_credentials: []
+  default_credentials:
+    - { user: sovol, password: sovol }
+  recommended_user_after_install: sovol
+  fingerprint_notes: |
+    The Sovol image ships a factory-baked SSH host key set that
+    survives reflashing — every printer on the SPI-XI image lineage
+    (verified across the SV08 Max + multiple Sovol Zeros on the same
+    LAN) shares the SAME three host keys, all generated on a build VM
+    named "chris-virtual-machine":
 
+      ed25519 SHA256:r29wTDuG7tzLvsyF4P06NSatzmc6dKh3dHWw3uGXs5w
+      rsa     SHA256:mWrPlIsu+ciWZH3iYUw1l3hEt8zQ5B3bpcBiqoIgoHo
+      ecdsa   SHA256:HF6v3Z3Ef9E4MDRyJTouFmV3JDnQdpbc7PPVpwN4VXs
+
+    All three keys ship pre-shared. Any party that obtains the
+    private half of any one key from any shipped Sovol unit can
+    transparently impersonate every other shipped unit. Until host
+    keys are regenerated, the SSH host fingerprint is not a per-unit
+    identifier.
+
+    Any stock_keep flow MUST regenerate ALL THREE host keys (via
+    `sudo dpkg-reconfigure openssh-server` or equivalent) BEFORE the
+    user is asked to trust the fingerprint, and BEFORE any user
+    credential prompt happens over the SSH channel. Regenerating
+    only the ed25519 key is insufficient — RSA and ECDSA fingerprints
+    remain identical across units and are equally usable for
+    impersonation.
+
+# Three firmware choices: keep Sovol's fork (default — known-working,
+# shipped from factory), Kalico (community Klipper fork), or upstream
+# Klipper mainline. All three replace the stock klipper tree at
+# /home/sovol/klipper; snapshot_before_replace covers the rollback
+# path. Sovol's klippy/extras/ modifications (the twelve files in
+# klipper-extras/) are layered on top via link_extras for the
+# Kalico/Klipper paths so users keep z_offset_calibration, the
+# eddy-probe contact behavior, and the LIS2DW path.
+#
+# CAVEAT: upstream Klipper rewrote probe_eddy_current.py in 0.13.x;
+# Sovol's modifications may not apply cleanly to the most recent
+# Kalico/Klipper master. Test on the snapshotted state before
+# committing.
 firmware:
-  choices: []
-  default_choice: null
+  choices:
+    - id: sovol_fork
+      display_name: Sovol's klipper fork (stock — default)
+      description: >
+        The Klipper fork Sovol ships from the factory. Last commit on
+        the audited unit: `d4031b3 zoffset校准增加前置电流校准动作`
+        ("z offset calibration adds pre-current calibration action").
+        Ships with z_offset_calibration.py (Sovol-original) and the
+        full set of Sovol-modified extras already in the tree, so
+        the link_extras step is a no-op for this choice. The
+        internal git origin (192.168.1.233/root/klipper.git) won't
+        reach anything post-ship; on fresh_flash we rsync the
+        klipper tree out of the home/sovol/klipper/ subpath of
+        Sovol3d/SV08MAX on GitHub instead.
+      repo: https://github.com/Sovol3d/SV08MAX
+      ref: main
+      install_path: "~/klipper"
+      venv_path: "~/klippy-env"
+      python_min: "3.9"
+      recommended: true
+    - id: kalico
+      display_name: Kalico
+      description: >
+        Community-maintained Klipper fork (formerly Danger Klipper).
+        Picks up fixes faster than upstream and ships extras worth
+        having on this machine: macros can run custom triggers
+        (handy for timelapses or notifications), better input-shaper
+        calibration against the LIS2DW accelerometer, improved
+        filament-runout handling for the SV08 Max's switch + motion
+        encoder pair, slightly relaxed safety rails for unjamming.
+        Sovol's klippy/extras/ modifications layer on top via the
+        flow's link_extras step (all 12 files in klipper-extras/).
+        CAVEAT: upstream Klipper rewrote probe_eddy_current.py in
+        0.13.x and Sovol's `vir_contact_speed` / `TYPE_VIR_TOUCH`
+        extensions may not apply cleanly to recent Kalico master.
+        snapshot_before_replace covers the rollback path.
+      repo: https://github.com/KalicoCrew/kalico
+      ref: main
+      install_path: "~/kalico"
+      venv_path: "~/kalico-env"
+      python_min: "3.9"
+      recommended: false
+    - id: klipper_mainline
+      display_name: Klipper (mainline)
+      description: >
+        Upstream Klipper3d/klipper. Every tutorial, forum answer, and
+        slicer plugin targets this build, so it's the safest pick if
+        you're tracking the wider ecosystem. Tradeoff: upstream
+        accepted its own eddy-probe code in 0.13.x and that may
+        conflict with Sovol's `vir_contact_speed` / `TYPE_VIR_TOUCH`
+        extensions. The flow's link_extras step copies all 12
+        Sovol-modified files on top, but if the conflict check
+        fails the snapshot_before_replace rollback restores Sovol's
+        fork.
+      repo: https://github.com/Klipper3d/klipper
+      ref: master
+      install_path: "~/klipper"
+      venv_path: "~/klippy-env"
+      python_min: "3.9"
+      recommended: false
+  default_choice: sovol_fork
+  replace_stock_in_place: true
+  snapshot_before_replace: true
+  requires_python_rebuild_if:
+    # Sovol's image ships Python 3.9.2 system-wide. Kalico and
+    # upstream Klipper both want 3.9+, which we already have.
+    # If a future SPI-XI image revision drops below 3.9, this
+    # conditional fires the same build-python-3.11.sh path the
+    # Phrozen Arco profile uses on Buster.
+    - condition: "os_python_below(firmware.selected.python_min)"
+      action: "build-python-from-source"
+      script: shared/scripts/build-python-3.11.sh
 
-stack: {}
-mcus: []
-screens: []
+stack:
+  moonraker:
+    repo: https://github.com/Arksine/moonraker
+    ref: master
+    install_path: "~/moonraker"
+    venv_path: "~/moonraker-env"
+    port: 7125
+    trusted_clients:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 127.0.0.0/8
+      - 169.254.0.0/16
+    notes: |
+      Stock observed at upstream commit 4e00a07 (2024-10-21), branch
+      master, no Sovol modifications. Service description string is
+      "API Server for Klipper SV1" (the "SV1" tag is image-level on
+      the SPI-XI lineage; not a per-unit identifier).
+  webui:
+    choices:
+      # Both Mainsail AND Fluidd are present on stock — Sovol installs
+      # them side by side. Mainsail is the active default per
+      # `[include mainsail.cfg]` in printer.cfg and the nginx site at
+      # /etc/nginx/sites-available/mainsail. Fluidd is installed but
+      # not served. Default-choice list reflects that.
+      - id: mainsail
+        display_name: Mainsail
+        description: >-
+          Already installed and active on the stock image. Served by
+          nginx on port 80. Default choice for stock_keep.
+        release_repo: mainsail-crew/mainsail
+        asset_pattern: "mainsail.zip"
+        install_path: "~/mainsail"
+        default_port: 80
+      - id: fluidd
+        display_name: Fluidd
+        description: >-
+          Installed at ~/fluidd on stock but not served by nginx by
+          default. Deckhand can wire it up as a secondary site (e.g.
+          on port 8808) without needing to download anything.
+        release_repo: fluidd-core/fluidd
+        asset_pattern: "fluidd.zip"
+        install_path: "~/fluidd"
+        default_port: 8808
+    default_choices: [mainsail]
+    allow_multiple: true
+    allow_none: true
+  kiauh:
+    repo: https://github.com/dw-0/kiauh
+    ref: master
+    install_path: "~/kiauh"
+    default_install: true
+    notes: |
+      Already installed at /home/sovol/kiauh on the stock image
+      (used during Sovol's factory build, per /home/sovol/.bash_history).
+  crowsnest:
+    repo: https://github.com/mainsail-crew/crowsnest
+    ref: master
+    install_path: "~/crowsnest"
+    included: true
+    notes: |
+      Already installed and active. ustreamer at 127.0.0.1:8080,
+      single camera /dev/video0 via crowsnest. The `main` argv[0]
+      seen in `ss -tnlp` for pid 1933 is just ustreamer's renamed
+      argv[0], not a separate vendor binary.
+
+# CAN-bus + USB-bridge topology. All three MCUs are on can0 at 1 Mbit;
+# can0 is brought up by /etc/network/interfaces.d/can0 (classic
+# ifupdown) and the underlying transport is a `gs_usb` USB device
+# enumerated as 1d50:606f. The CAN UUIDs below are byte-identical to
+# the Sovol Zero's — Sovol assigns deterministic UUIDs by chip role
+# across the entire SPI-XI line, NOT derived from chip-id. Two of
+# these printers on the same CAN bus would address-collide; user
+# documentation should call this out.
+mcus:
+  - id: main
+    display_name: Main MCU (CAN-bridge — STM32H750)
+    chip: stm32h750xx
+    clock_hz: 400000000
+    flash_size: 0x20000
+    application_offset: 0x8000000
+    transport:
+      kind: canbus_bridge
+      bridge_via: usb_gs_can     # 1d50:606f Geschwister Schneider — confirmed via lsusb
+      can_uuid: "0d1445047cdd"
+      can_bitrate: 1000000
+      flash_method: katapult_can
+      flash_script: "./firmware/mcu_update_fw.sh"
+      flash_blob: "./firmware/mcu_klipper.bin"
+      flash_blob_size_bytes: 28996
+      flash_blob_source: "Sovol3d/SV08MAX repo @ home/sovol/zhongchuang/MKSDEB/root/klipper.bin"
+      build_config: "./firmware/main-mcu-h750.config"
+      katapult_serial_id_pattern: "/dev/serial/by-id/usb-katapult_stm32h750xx*"
+    notes: |
+      Both CAN-bus bridge to Linux (USBCANBUS mode) AND printer's
+      main MCU. STM32H750xx @ 400 MHz, exposed to host as the gs_usb
+      device 1d50:606f. Build config is firmware/main-mcu-h750.config
+      (`CONFIG_MACH_STM32H750=y` + `CONFIG_USBCANBUS=y` +
+      `CONFIG_STM32_CANBUS_PB8_PB9=y` + `CONFIG_CANBUS_FREQUENCY=1000000`);
+      Sovol publishes the resulting binary at MKSDEB/root/klipper.bin
+      in their public source repo, vendored here as
+      firmware/mcu_klipper.bin (28,996 bytes).
+
+      Same CAN UUID as the Sovol Zero's main MCU (Sovol assigns
+      deterministic UUIDs by chip role across the SPI-XI line — see
+      docs/ALIGNMENT-WITH-ZERO.md).
+
+  - id: extra_mcu
+    # Sovol calls this section [mcu extra_mcu] on the Max but
+    # [mcu extruder_mcu] on the Zero — same chip role, same UUID.
+    # Profile field surfaces by UUID, not section name.
+    display_name: Toolhead/extruder MCU (STM32F103xe)
+    chip: stm32f103xe
+    clock_hz: 72000000
+    flash_size: 0x10000
+    application_offset: 0x8000000
+    transport:
+      kind: canbus
+      can_uuid: "61755fe321ac"
+      can_bitrate: 1000000
+      flash_method: katapult_can
+      flash_script: "./firmware/extruder_mcu_update_fw.sh"
+      flash_blob: null   # Sovol does not publish this blob; built from source
+      build_config: "./firmware/toolhead-chamber-mcu-f103.config"
+      build_from_source: true
+    notes: |
+      Carries: extruder stepper (TMC2209 UART, address 3),
+      hotend heater + thermistor (custom Sovol thermistor table —
+      PT1000-shaped curve, max 310 °C),
+      hotend fan (PA6) + tach (PA1),
+      front part-cooling fan (fan0, PB0),
+      back part-cooling fan (fan1, PA7),
+      LDC1612 eddy probe over i2c2,
+      LIS2DW accelerometer over SPI (PB12-PB15).
+
+      Sovol does not publish a pre-built blob for this MCU
+      (mcu_klipper.bin is published, extruder_mcu_klipper.bin and
+      extra_mcu_klipper.bin are not). flows.stock_keep and
+      flows.fresh_flash both build it from source against the
+      Sovol klipper tree using firmware/toolhead-chamber-mcu-f103.config.
+
+  - id: hot_mcu
+    display_name: Chamber MCU (STM32F103xe)
+    chip: stm32f103xe
+    clock_hz: 72000000
+    flash_size: 0x10000
+    application_offset: 0x8000000
+    transport:
+      kind: canbus
+      can_uuid: "58a72bb93aa4"
+      can_bitrate: 1000000
+      flash_method: katapult_can
+      flash_script: "./firmware/extra_mcu_update_fw.sh"
+      flash_blob: null   # Sovol does not publish this blob; built from source
+      build_config: "./firmware/toolhead-chamber-mcu-f103.config"
+      build_from_source: true
+    notes: |
+      Defined in chamber_hot.cfg (included from printer.cfg). Carries:
+      chamber heater (PA0) + thermistor (PA5), chamber outlet temp,
+      chamber-fan tachometer, hot_led indicator. Same UUID as the
+      Zero's `hot_mcu`. Watermark-controlled
+      [heater_generic chamber_temp] — note: the Zero's chamber_hot.cfg
+      uses [heater_generic chamber_heater] instead. The names differ
+      between SKUs and are NOT interchangeable; M141/M191 macros wire
+      to whichever name is present. Anything Deckhand generates that
+      references the chamber heater by section-name has to use
+      "chamber_temp" on the Max.
+
+      Same chip family as `extra_mcu`; uses the same
+      toolhead-chamber-mcu-f103.config build config. The two F103
+      MCUs are distinguished only by their CAN UUIDs at runtime
+      (the build artifact is interchangeable).
+
+screens:
+  - id: zhongchuang_serial_tft
+    display_name: Sovol serial TFT touchscreen (zhongchuang_klipper, default)
+    source_kind: bundled
+    source_path: ./screen-daemon/
+    install_path: "/home/sovol/zhongchuang/"
+    install_script: ./screen-daemon/builddeb.sh   # CMake build + dpkg-deb pack, then dpkg -i
+    binary_path: "/home/sovol/zhongchuang/build/zhongchuang_klipper"
+    service_name: makerbase-client.service
+    service_unit: ./screen-daemon/service/makerbase-client.service
+    start_script: ./screen-daemon/start.sh
+    transport: serial
+    serial_device: "/dev/ttyS3"
+    daemon_build_system: cmake
+    daemon_links_against: ["pthread", "boost_system", "wpa_client", "curl"]
+    daemon_internal_origin: "http://192.168.1.233/root/zhongchuang.git"
+    daemon_public_source: "https://github.com/Sovol3d/SV08MAX/tree/main/home/sovol/zhongchuang"
+    upstream_lineage: "Makerbase mksclient derivative with Sovol's sovol_http.cpp addition"
+    closed_blobs:
+      - path: "~/众创klipper.tft.bak"
+        approximate_size_bytes: 9668308
+        format: nextion_style_tft_firmware
+        vendor: "ZhongChuang (众创)"
+        license: closed
+        notes: >
+          The TFT panel firmware itself (the .tft blob loaded by the
+          Nextion-class display) is closed-source ZhongChuang vendor
+          firmware, separate from the open-source zhongchuang_klipper
+          daemon that drives it. The daemon source is on disk; the
+          panel firmware is not. Whatever ships on the panel is the
+          baseline.
+    daemon_source_present: true
+    daemon_source_root: ./screen-daemon/
+    daemon_source_files:
+      - "src/MoonrakerAPI.cpp"
+      - "src/KlippyGcodes.cpp"
+      - "src/KlippyRest.cpp"
+      - "src/process_messages.cpp"
+      - "src/refresh_ui.cpp"
+      - "src/ui.cpp"
+      - "src/MakerbasePanel.cpp"
+      - "src/MakerbaseShell.cpp"
+      - "src/MakerbaseSerial.cpp"
+      - "src/sovol_http.cpp"   # Sovol-original — wraps OTA progress UI for the panel
+    status: stable
+    recommended: true
+    notes: >
+      Sovol's primary screen on the SV08 Max. C++ daemon source on
+      disk under ~/zhongchuang/, built into ~/zhongchuang/build/zhongchuang_klipper
+      (~8.6 MB ELF). Connects to Moonraker via WebSocket on
+      localhost:7125 and drives the TFT over /dev/ttyS3. Vendor-set
+      systemd unit makerbase-client.service launches it as root with
+      `LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libSegFault.so` and
+      `LimitCORE=infinity` (Sovol expects the daemon may segfault and
+      wants core dumps; not a Deckhand concern but worth knowing).
+
+      The Phrozen Arco profile uses the service-id `makerbase_client`
+      for a related-but-disabled MKS Pi alternative screen daemon; on
+      the Max the same service is the ACTIVE primary screen daemon.
+      Cross-profile tooling that special-cases makerbase-client by
+      service id has to handle both states.
+
+  - id: klipperscreen_hdmi
+    display_name: KlipperScreen on HDMI (optional secondary)
+    source_kind: stock_in_place
+    install_path: "/home/sovol/KlipperScreen"
+    venv_path: "/home/sovol/.KlipperScreen-env"
+    backend: x11_xinit
+    tty: "/dev/tty7"
+    start_script: "/home/sovol/KlipperScreen/scripts/KlipperScreen-start.sh"
+    start_script_modified_by_vendor: false
+    status: stable
+    recommended: false
+    notes: |
+      The CB1's HDMI port supports a separately-purchased touchscreen
+      (e.g. BTT PAD7); KlipperScreen renders to it via Xorg fbdev on
+      tty7 if a display is plugged in. KlipperScreen.service is
+      enabled by default and runs unconditionally (rendering to an
+      unattached fbdev when no monitor is connected — harmless).
+      Stock KlipperScreen-start.sh is upstream-unmodified, no rewrite
+      needed on stock_keep.
+
+      `system_cfg.sh` carries dead code for HDMI-1 rotation +
+      libinput touch calibration matrix, gated on
+      `BTT_PAD7=ON` in /boot/system.cfg (default OFF). If a user
+      attaches a BTT PAD7 they flip the toggle and reboot; the Sovol
+      script writes /usr/share/X11/xorg.conf.d/90-monitor.conf for
+      them.
+
+      The current Xorg config is `/etc/X11/xorg.conf.d/01-dbbian-defaults.conf`
+      (typo'd "dbbian" — file exists on disk but is not owned by any
+      dpkg package on the Max; copied in directly during factory
+      build).
+
+# No vendor add-on hardware shipped (no AMS, no print-head changer).
+# The zhongchuang serial-screen client is documented under `screens:`
+# rather than here.
 addons: []
 
 stock_os:
-  detections: []
-  services: []
-  files: []
-  paths: []
+  detections:
+    - kind: file_contains
+      label: "Sovol SV08 Max printer-model identifier in moonraker-obico.cfg"
+      path: "/home/sovol/printer_data/config/moonraker-obico.cfg"
+      pattern: 'printer_model:\s*SOVOL SV08 MAX'
+      required: true
+      note: >
+        Strongest stock-image signal. moonraker-obico.cfg's [meta]
+        block names the printer model and Sovol's internal board
+        revision. Distinguishes the SV08 Max from a sibling Zero /
+        SV08 Mini running the same SPI-XI image.
+    - kind: file_contains
+      label: "Sovol board model H616_JC_6Z_5160_V1.2"
+      path: "/home/sovol/printer_data/config/moonraker-obico.cfg"
+      pattern: 'board_model:\s*H616_JC_6Z_5160_V1\.2'
+      required: false
+      note: >
+        Second-tier confirmation. The "6Z" component of the board
+        revision string is the SV08-Max-specific marker (the Zero is
+        "3Z", the SV08 Mini is presumed different).
+    - kind: file_exists
+      label: "zhongchuang_klipper screen daemon binary"
+      path: "/home/sovol/zhongchuang/build/zhongchuang_klipper"
+      required: true
+      note: >
+        The serial-TFT screen daemon binary, built by Sovol from
+        source under ~/zhongchuang/. Distinguishes the SV08 Max from
+        the Sovol Zero, which has the source tree but does NOT build
+        or run this daemon (the Zero uses a small UC1701 LCD driven
+        directly by Klipper, no separate screen daemon).
+    - kind: file_exists
+      label: "Sovol's vendor boot orchestrator is in place"
+      path: "/boot/scripts/btt_init.sh"
+      required: true
+      note: >
+        Called from /etc/rc.local at every boot. Its presence
+        confirms we're on the SPI-XI image. Same on Max as on Zero,
+        but the Max's btt_init.sh has the OTA daemon line commented
+        out — see stock_os.services.ota_service for details.
+    - kind: file_exists
+      label: "Sovol-original z_offset_calibration extras module"
+      path: "/home/sovol/klipper/klippy/extras/z_offset_calibration.py"
+      required: true
+      note: >
+        Copyright header reads `Sovol3d <info@sovol3d.com>`.
+        Confirms the klipper tree is Sovol's fork, not vanilla.
+    - kind: file_contains
+      label: "System hostname matches the SPI-XI image"
+      path: "/etc/hostname"
+      pattern: "^SPI-XI"
+      required: false
+      note: >
+        Stock hostname is `SPI-XI`. A different hostname just means
+        the owner changed it.
+
+  services:
+    # Mirrors the Zero's wifi_server entry — same daemon, same
+    # severity, same recommended action. Verified identical
+    # /usr/local/bin/wifi_server.py + same wifi_server.service unit
+    # on both printers.
+    - id: wifi_server
+      display_name: Sovol wifi_server (LAN-exposed root command server)
+      systemd_unit: wifi_server.service
+      process_pattern: "wifi_server.py"
+      launched_by:
+        kind: systemd
+        unit: wifi_server.service
+        runs_as: root
+      listens_on:
+        - { protocol: tcp, port: 5000, bind: "0.0.0.0", auth: none }
+      default_action: disable
+      severity: critical
+      wizard:
+        question: Disable Sovol's wifi_server?
+        helper_text: |
+          Sovol ships a Flask app at /usr/local/bin/wifi_server.py
+          that listens on 0.0.0.0:5000 as ROOT with NO authentication
+          and exposes a /command endpoint that runs arbitrary shell
+          commands matching a weak prefix filter. Trivially escapable.
+          Anyone on the LAN can run shell as root. Disabling does not
+          break anything user-facing — it was used by an older Sovol
+          mobile app for wifi setup; the current touchscreen does
+          wifi setup directly via NetworkManager.
+        options:
+          - { id: disable, label: "Disable (strongly recommended)" }
+          - { id: keep, label: "Keep (NOT recommended)" }
+        recommended: disable
+
+    # The SV08 Max has the OTA daemon on disk and wired into the
+    # _OTA Klipper macro — but the launch line in btt_init.sh is
+    # COMMENTED OUT (`#sudo -u sovol ./ota_service.sh &`), so the
+    # daemon does not run at boot. The _OTA macro's SIGUSR1 has no
+    # target. This is a deliberate Sovol divergence from the Zero,
+    # not a Deckhand concern. Recorded so the wizard step shape on
+    # the Max differs: there's nothing to disable, just nothing to
+    # accidentally re-enable.
+    - id: ota_service
+      display_name: Sovol OTA daemon (Comgrow update channel — INACTIVE on Max)
+      process_pattern: "ota_service.sh"
+      launched_by:
+        kind: script
+        path: "/boot/scripts/btt_init.sh"
+        note: |
+          Launch line is commented out on the SV08 Max
+          (`#sudo -u sovol ./ota_service.sh &`). The daemon does not
+          run at boot, so the `_OTA` Klipper macro is non-functional
+          out of the box on this SKU.
+      phones_home:
+        - { host: "www.comgrow.com", port: 443, on_demand: true, trigger: "SIGUSR1 from ~/ota_client.sh", currently_active: false }
+      default_action: keep
+      wizard: none
+      note: |
+        On the Max we leave the daemon scripts on disk but don't
+        re-enable the boot-time launch. The launch line in
+        /boot/scripts/btt_init.sh is already commented out at
+        factory; the file-level state is "keep, do not modify".
+        Users who want Sovol's OTA channel can uncomment the line
+        manually; the flow doesn't surface this as a wizard choice
+        because the default state is already "off". Compare the
+        Sovol Zero profile, where the daemon DOES run at boot and
+        the wizard offers an explicit disable.
+
+    - id: connect_wifi
+      display_name: connect_wifi.sh (boot-time wifi connector with USB fallback)
+      process_pattern: "connect_wifi.sh"
+      launched_by:
+        kind: script
+        path: "/boot/scripts/btt_init.sh"
+      default_action: disable
+      wizard:
+        question: How should boot-time wifi setup behave?
+        helper_text: |
+          On every boot, /boot/scripts/connect_wifi.sh reads
+          WIFI_SSID/WIFI_PASSWD from /boot/system.cfg AND, as a
+          fallback, looks for a USB-stick wifi.cfg
+          (`connectUSBWifi()` is currently commented out in the
+          calling block on the Max but the function definition is
+          still present, so any future maintenance edit could
+          re-enable it). For most users the right answer is "disable
+          after I've set wifi" — NetworkManager remembers the
+          configured network on its own.
+        options:
+          - { id: disable, label: "Disable (recommended once wifi is set)" }
+          - { id: keep, label: "Keep (USB-stick provisioning still works if uncommented)" }
+        recommended: disable
+
+    - id: file_change_save
+      display_name: file_change_save.sh (config-dir inotify sync)
+      process_pattern: "file_change_save.sh"
+      launched_by:
+        kind: script
+        path: "/boot/scripts/btt_init.sh"
+      default_action: remove
+      wizard: none
+      note: |
+        Watches ~/printer_data/config for writes and calls `sync` on
+        every change. Klipper/Moonraker handle persistence on their
+        own; this is duplicate work and writes a noisy log to
+        /home/mount.log (which also gets PLR debug appended to it
+        from ~/plr.sh — two writers). Safe to drop.
+
+    - id: hostapd_vestigial
+      display_name: hostapd (enabled but no AP config)
+      systemd_unit: hostapd.service
+      default_action: disable
+      wizard: none
+      note: |
+        hostapd.service is `enabled` and constantly auto-restarts
+        because no AP config exists. Vestigial from the BTT CB1 base
+        image. Disabling silences the restart loop. Same on Max as
+        on Zero.
+
+    - id: moonraker_obico
+      display_name: moonraker-obico (Obico cloud bridge)
+      systemd_unit: moonraker-obico.service
+      default_action: disable
+      phones_home:
+        - { host: "app.obico.io", port: 443, always_on: true }
+      wizard:
+        question: Enable Obico cloud monitoring?
+        helper_text: |
+          Sovol ships moonraker-obico enabled but unconfigured — it
+          dials app.obico.io continuously even with no API key, just
+          waiting to be paired. Most users don't pair, so it's a
+          continuous outbound heartbeat to a Google Cloud-hosted
+          endpoint with no benefit. Enable only if you actually use
+          Obico.
+        options:
+          - { id: disable, label: "Disable (recommended unless you use Obico)" }
+          - { id: keep, label: "Keep enabled (you'll register via the Obico app)" }
+        recommended: disable
+
+    # Max-only entry. Drives the screens.zhongchuang_serial_tft
+    # daemon. On the Zero, makerbase-client.service is not present
+    # (the Zero's screen is a UC1701 LCD driven by Klipper directly,
+    # no separate daemon needed).
+    - id: makerbase_client
+      display_name: makerbase-client (zhongchuang_klipper TFT-screen daemon)
+      systemd_unit: makerbase-client.service
+      process_pattern: "zhongchuang_klipper"
+      launched_by:
+        kind: systemd
+        unit: makerbase-client.service
+        runs_as: root
+        exec_start: "/home/sovol/zhongchuang/build/start.sh"
+      depends_on:
+        screen_choice: zhongchuang_serial_tft
+      default_action: derived
+      wizard:
+        question: How should the SV08 Max's TFT touchscreen behave?
+        helper_text: |
+          The Sovol-built `zhongchuang_klipper` daemon drives the
+          serial TFT touchscreen via /dev/ttyS3. Source tree is on
+          disk under ~/zhongchuang/ (mksclient derivative with
+          Sovol's `sovol_http.cpp` addition). If you want to keep
+          the stock TFT UI, leave the daemon enabled (the default).
+          If you've replaced the TFT with an HDMI display + KlipperScreen,
+          you can disable this service to avoid the segfault-restart
+          churn (Sovol launches it with libSegFault preloaded and
+          unlimited core dumps — they expect crashes). Disabling
+          does NOT block KlipperScreen on HDMI; that's a separate
+          service.
+        options:
+          - { id: keep, label: "Keep (default — TFT touchscreen is the primary UI)" }
+          - { id: disable, label: "Disable (only if TFT is replaced or unused)" }
+        default_rules:
+          - when: selected(screens, zhongchuang_serial_tft)
+            then: keep
+          - when: selected(screens, klipperscreen_hdmi)
+            then: disable
+
+    - id: klipperscreen
+      display_name: KlipperScreen (HDMI fallback UI — stock script, untouched)
+      systemd_unit: KlipperScreen.service
+      launched_by:
+        kind: script
+        path: "/home/sovol/KlipperScreen/scripts/KlipperScreen-start.sh"
+        note: |
+          Sovol ships the upstream KlipperScreen-start.sh unmodified.
+          No rewriting needed on stock_keep. Same as Zero.
+      default_action: keep
+      wizard: none
+      note: |
+        Renders to fbdev on /dev/tty7 whether or not an HDMI display
+        is attached. Harmless when no display is plugged in; becomes
+        the active UI if a display IS attached. See
+        screens.klipperscreen_hdmi.
+
+  files:
+    # The Max's NM connections at audit time held only ZYIPTest plus
+    # the user's own networks — not the three factory PSKs the Zero
+    # ships with (SPIXINETGEAR26, Spixi). Either Sovol cleaned up
+    # before shipping the Max or the user removed them. Detection /
+    # cleanup must tolerate "0 to N present" rather than assuming
+    # all three.
+    - id: factory_wifi_profiles
+      display_name: Factory test wifi credentials in NetworkManager
+      paths:
+        - "/etc/NetworkManager/system-connections/SPIXINETGEAR26.nmconnection"
+        - "/etc/NetworkManager/system-connections/Spixi.nmconnection"
+        - "/etc/NetworkManager/system-connections/ZYIPTest.nmconnection"
+      default_action: delete
+      severity: privacy
+      tolerate_absent: true
+      wizard:
+        helper_text: |
+          The shared SPI-XI image ships with up to three plaintext
+          factory wifi PSKs (`Spixi2023`, `ZCSW$888`, `12345678`)
+          baked into NetworkManager — the contract manufacturer's
+          test networks. The audited SV08 Max only had ZYIPTest;
+          the SV08 Mini and Sovol Zero ship more. Deletion is
+          recommended on every SKU and does not affect the wifi
+          profile you actually configured.
+        recommended: delete
+
+    - id: boot_system_cfg_wifi
+      display_name: Cleartext wifi credentials in /boot/system.cfg
+      paths: ["/boot/system.cfg"]
+      default_action: keep
+      severity: privacy
+      wizard:
+        helper_text: |
+          /boot/system.cfg has a `WIFI_SSID="ZYIPTest"` /
+          `WIFI_PASSWD="12345678"` pair that connect_wifi.sh reads on
+          every boot. Clearing these fields stops the boot-time
+          re-connect to the factory test wifi without removing the
+          file (other settings — timezone, KS rotation, BTT_PAD7
+          toggle, sound/vibration — stay). The flow's `stock_keep`
+          step `rewrite_boot_system_cfg` is responsible for the
+          in-place edit; this entry is a privacy advisory.
+
+    - id: ttyS3_dev_leftover
+      display_name: ~/ttyS3.py (developer probe leftover)
+      paths: ["/home/sovol/ttyS3.py"]
+      default_action: delete
+      wizard:
+        helper_text: 366-byte test script that opens /dev/ttyS3 and writes "Hello!". No user value.
+
+    # Max-specific. /root/ on the Zero is essentially empty; on the
+    # Max it carries factory build artifacts.
+    - id: root_klipper_bin
+      display_name: /root/klipper.bin (factory MCU firmware blob — Max-only)
+      paths: ["/root/klipper.bin"]
+      default_action: keep
+      wizard: none
+      note: |
+        28.9 KB sovol-owned blob, plausibly the main MCU firmware
+        (chip identity inferred — see mcus.main). Not in
+        ~/printer_data/build/ where Sovol's flasher scripts expect
+        firmware blobs to live. The factory provisioning script copied
+        it here and didn't move it; the Sovol flasher scripts won't
+        find it without an explicit path override. Keep it on disk —
+        if we ever need to reflash the main MCU, this is currently
+        the only blob we have for it.
+
+    - id: root_mcu_update_sh
+      display_name: /root/mcu_update.sh (factory flash helper — Max-only)
+      paths: ["/root/mcu_update.sh"]
+      default_action: keep
+      wizard: none
+      note: |
+        1.2 KB sovol-owned script. Pairs with /root/klipper.bin.
+        Not invoked at runtime; preserved as the documented path
+        Sovol's factory build used.
+
+    - id: zhongchuang_tft_blob
+      display_name: ~/众创klipper.tft.bak (TFT vendor firmware — Max-only)
+      paths: ["/home/sovol/众创klipper.tft.bak"]
+      default_action: keep
+      severity: vendor_blob
+      wizard: none
+      note: |
+        9.7 MB closed-source ZhongChuang TFT panel firmware. Stays on
+        disk only as a backup — the panel runs whatever firmware
+        Sovol flashed at the factory, and this `.bak` is the
+        documented restore image. Required if a user re-flashes the
+        TFT panel via the Sovol flasher; harmless to keep otherwise.
+        Do NOT delete on stock_keep.
+
+    - id: dbbian_xorg_typo
+      display_name: /etc/X11/xorg.conf.d/01-dbbian-defaults.conf (typo'd Sovol Xorg config)
+      paths: ["/etc/X11/xorg.conf.d/01-dbbian-defaults.conf"]
+      default_action: keep
+      wizard: none
+      note: |
+        Sovol-shipped Xorg fragment (note the "dbbian" typo for
+        "debian"). Sets `Driver "fbdev"`, default 180-degree rotation,
+        and a touchscreen CalibrationMatrix. Required for KlipperScreen
+        to render correctly on the SV08 Max's touchscreen. NOT owned
+        by any dpkg package on the Max — copied directly during
+        factory build. Keep the file in place; cleanup is cosmetic
+        only (renaming to `01-debian-defaults.conf` would also work
+        but isn't worth a wizard step).
+
+    - id: patch_dir
+      display_name: ~/patch/ (factory-build overlay scaffolding)
+      paths: ["/home/sovol/patch/"]
+      default_action: keep
+      wizard: none
+      note: |
+        Same shape as the Sovol Zero's. Holds the factory overlay of
+        klippy/extras/display/{menu.py, menu.cfg, display.cfg} —
+        already applied to the running klipper tree. ~/factory_resets.sh
+        expects ~/patch/config/*.cfg as the canonical reset payload.
+        Keep until factory_resets behavior is wired or removed.
+
+    - id: usbmount_sources
+      display_name: ~/usbmount/ (already-installed make sources)
+      paths: ["/home/sovol/usbmount/"]
+      default_action: delete
+      wizard:
+        helper_text: |
+          Sources for makerbase-automount@.service. Already
+          make-installed at factory; the installed udev rule lives
+          at /lib/udev/rules.d/60-usbmount.rules. The home-dir copy
+          is build leftover.
+
+  paths:
+    - id: klipper_install
+      path: "/home/sovol/klipper"
+      role: stock_klipper_with_sovol_extras
+      action: snapshot_and_replace
+      snapshot_to: "/home/sovol/klipper.stock.{{timestamp}}"
+      notes: |
+        Sovol fork at the same git origin as the Zero's
+        (http://192.168.1.233/root/klipper.git). Last commit on the
+        audited Max:
+        `d4031b3 zoffset校准增加前置电流校准动作` ("z offset calibration
+        adds pre-current calibration action"). Slightly newer than
+        the Zero's HEAD (cc8afd8 / "1.3.7版本"). Same set of Sovol-
+        modified extras files. Ports forward to upstream / Kalico
+        require porting Sovol's z_offset_calibration.py + the
+        probe_eddy_current.py modifications + probe_pressure.py.
+    - id: klippy_env
+      path: "/home/sovol/klippy-env"
+      role: stock_klipper_venv
+      action: snapshot_and_replace
+      snapshot_to: "/home/sovol/klippy-env.stock.{{timestamp}}"
+    - id: printer_data
+      path: "/home/sovol/printer_data"
+      role: config + state
+      action: preserve
+    - id: moonraker_install
+      path: "/home/sovol/moonraker"
+      role: third-party
+      action: preserve
+    - id: ks_install
+      path: "/home/sovol/KlipperScreen"
+      role: third-party_with_sovol_menu_overlay
+      action: preserve
+      notes: |
+        Stock KlipperScreen-start.sh is upstream-unmodified. The
+        klippy-side menu overlay lives in the klipper tree, not
+        here. Same as Zero.
+    - id: zhongchuang_install
+      path: "/home/sovol/zhongchuang"
+      role: vendor_screen_daemon_source
+      action: preserve
+      notes: |
+        Sovol's mksclient derivative — full source + built binary.
+        Required to drive the TFT screen. Preserve in place; rebuild
+        only if the user explicitly opts to (it's CMake + standard
+        deps, but the build host needs g++17, libboost-dev,
+        libwpa-client-dev, libcurl4-openssl-dev). On the Sovol Zero
+        the same source tree exists but is NOT built — the Zero
+        doesn't need it because it has a UC1701 LCD instead of a
+        serial TFT.
+    - id: boot_partition
+      path: "/boot"
+      role: vendor_boot_scripts + system_cfg
+      action: rewrite_btt_init_sh
+      notes: |
+        On stock_keep we rewrite /boot/scripts/btt_init.sh to drop
+        wifi_server, file_change_save, and connect_wifi while
+        keeping system_cfg.sh and the /boot/gcode/ sweep. Note that
+        on the Max, the OTA-daemon launch line is ALREADY commented
+        out (different from the Zero, which has it active). The
+        rewrite has to be tolerant of either starting state.
+        /boot/system.cfg and the rest of /boot/scripts/* (auto_brightness,
+        set_rgb, sound.sh, mp3/, etc.) are preserved.
 
 wizard:
   title: Sovol SV08 Max Setup
   extra_steps: []
 
 flows:
-  stock_keep: { enabled: false }
-  fresh_flash: { enabled: false }
+  # stock_keep: take a stock SV08 Max running Sovol's SPI-XI image and
+  # produce a Deckhand-managed install in place. Preserves the user's
+  # Sovol klipper fork, configs, and TFT screen daemon by default;
+  # tears down the LAN-RCE wifi_server, regenerates the pre-shared SSH
+  # host keys, cleans up factory PSKs and cleartext credentials, and
+  # rewrites /boot/scripts/btt_init.sh to drop the duplicate-work
+  # daemons (file_change_save, optionally connect_wifi).
+  stock_keep:
+    enabled: true
+    preconditions:
+      - { kind: ssh_ok, severity: block }
+      - { kind: free_space_min, mountpoint: "/home/sovol", bytes: 1500000000, severity: block }
+      - { kind: not_printing, severity: warn }
+    steps:
+      - id: backup_prompt
+        kind: prompt
+        safe_to_rerun: true   # only shows a dialog; produces no state.
+        message: |
+          Before continuing, back up the eMMC. Deckhand can image the
+          ~32 GB eMMC over a USB adapter. The Sovol SV08 Max ships with
+          all three SSH host keys pre-shared from a factory build VM,
+          so the very first step we'll take is regenerating them — and
+          if anything in the rest of this flow breaks, your only path
+          back to a known-good Sovol stock state is your eMMC backup.
+        actions:
+          - { id: backup_now, label: "Back up now (recommended)" }
+          - { id: i_have_one, label: "I already have a backup" }
+          - { id: skip, label: "Skip (not recommended)" }
+      - id: regenerate_ssh_host_keys
+        kind: ssh_commands
+        confirm_before_run: true
+        idempotency:
+          # Skip if the ed25519 host key fingerprint is already NOT
+          # the factory-baked `chris-virtual-machine` value. After
+          # one successful run this is a no-op; before the first
+          # run it's the load-bearing security step.
+          pre_check: "[ \"$(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key 2>/dev/null | awk '{print $2}')\" != 'SHA256:r29wTDuG7tzLvsyF4P06NSatzmc6dKh3dHWw3uGXs5w' ]"
+          resume: restart
+          post_check: "[ \"$(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key | awk '{print $2}')\" != 'SHA256:r29wTDuG7tzLvsyF4P06NSatzmc6dKh3dHWw3uGXs5w' ] && [ \"$(ssh-keygen -lf /etc/ssh/ssh_host_rsa_key | awk '{print $2}')\" != 'SHA256:mWrPlIsu+ciWZH3iYUw1l3hEt8zQ5B3bpcBiqoIgoHo' ] && [ \"$(ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key | awk '{print $2}')\" != 'SHA256:HF6v3Z3Ef9E4MDRyJTouFmV3JDnQdpbc7PPVpwN4VXs' ]"
+        commands:
+          # Critical: do this BEFORE prompting the user to trust the
+          # SSH fingerprint. The factory ed25519+rsa+ecdsa keys
+          # (chris-virtual-machine) are present on every SPI-XI
+          # printer; until they're regenerated, the host fingerprint
+          # is not a per-unit identifier.
+          - "sudo rm -f /etc/ssh/ssh_host_*"
+          - "sudo dpkg-reconfigure -f noninteractive openssh-server"
+          - "sudo systemctl restart ssh"
+      - id: stop_services
+        kind: ssh_commands
+        safe_to_rerun: true   # stopping already-stopped services is fine.
+        commands:
+          - "sudo systemctl stop klipper KlipperScreen makerbase-client moonraker moonraker-obico crowsnest 2>/dev/null || true"
+      - id: snapshot_paths
+        kind: snapshot_paths
+        safe_to_rerun: true   # snapshot_paths timestamps each run, so reruns produce additional snapshots; never destructive.
+        paths: [klipper_install, klippy_env]
+      - id: disable_wifi_server
+        kind: ssh_commands
+        confirm_before_run: true
+        safe_to_rerun: true   # systemctl disable + mask are idempotent.
+        commands:
+          # Critical security finding — wifi_server.py is a root LAN
+          # RCE. Disable + mask so it can't come back via dpkg
+          # reinstall. Leave the file on disk so the user can audit
+          # it; we just kill the launcher.
+          - "sudo systemctl disable --now wifi_server.service"
+          - "sudo systemctl mask wifi_server.service"
+      - id: disable_moonraker_obico
+        kind: conditional
+        when: "selected(stock_os.services.moonraker_obico) == 'disable'"
+        then:
+          - kind: ssh_commands
+            commands:
+              - "sudo systemctl disable --now moonraker-obico.service"
+      - id: disable_hostapd_vestigial
+        kind: ssh_commands
+        safe_to_rerun: true
+        commands:
+          # hostapd is enabled by default but auto-restarts forever
+          # because no AP config exists. Always-disabled.
+          - "sudo systemctl disable --now hostapd.service"
+      - id: delete_factory_wifi_profiles
+        kind: ssh_commands
+        safe_to_rerun: true   # rm -f on missing files is a no-op; nmcli reload is idempotent.
+        commands:
+          # Tolerant of 0–N present; the audited Max only had ZYIPTest,
+          # but the Zero ships with three. Glob covers all known SSIDs.
+          - "sudo rm -f /etc/NetworkManager/system-connections/SPIXINETGEAR26.nmconnection"
+          - "sudo rm -f /etc/NetworkManager/system-connections/Spixi.nmconnection"
+          - "sudo rm -f /etc/NetworkManager/system-connections/ZYIPTest.nmconnection"
+          - "sudo nmcli connection reload"
+      - id: clear_boot_system_cfg_wifi
+        kind: ssh_commands
+        safe_to_rerun: true   # the regex anchored sed replacements are idempotent — repeated runs target the same lines.
+        commands:
+          # In-place edit, preserves all other settings (timezone,
+          # KS rotation, BTT_PAD7 toggle, sound/vibration).
+          - "sudo sed -i 's/^WIFI_SSID=.*/WIFI_SSID=\"\"/' /boot/system.cfg"
+          - "sudo sed -i 's/^WIFI_PASSWD=.*/WIFI_PASSWD=\"\"/' /boot/system.cfg"
+      # Bullseye-EOL apt sources fallback. Debian Bullseye reaches
+      # end-of-life in August 2026 (~3 months out from the audit
+      # date). Once it does, deb.debian.org/debian bullseye-* will
+      # 404 and `apt-get update` will fail. We rewrite sources.list
+      # to point at archive.debian.org (the EOL archive) ONLY when
+      # the live distro reports `bullseye` AND the user hasn't
+      # already cut over to bookworm/trixie. Same shape as the
+      # Phrozen Arco's Buster handling.
+      - id: fix_apt_sources_if_bullseye_eoled
+        kind: conditional
+        when: "os_codename_is(\"bullseye\") and apt_remote_unreachable(\"deb.debian.org\")"
+        then:
+          - id: write_bullseye_archive_sources
+            kind: write_file
+            target: "/etc/apt/sources.list"
+            template: shared/scripts/sources.list.bullseye-archive.tmpl
+            sudo: true
+            mode: "0644"
+            owner: root
+            note: |
+              Switches stock deb.debian.org/bullseye to
+              archive.debian.org/bullseye for EOL-archived packages.
+              Template is shared with sovol-zero (and any future
+              Bullseye-shipping profile) — see
+              shared/scripts/sources.list.bullseye-archive.tmpl. The
+              prior sources.list is auto-snapshotted to
+              /etc/apt/sources.list.deckhand-pre-<ts>.
+      - id: rewrite_btt_init_sh
+        kind: write_file
+        target: "/boot/scripts/btt_init.sh"
+        template: ./scripts/btt_init.sh.tmpl
+        sudo: true
+        mode: "0755"
+        owner: root
+        confirm_before_run: true
+        # write_file already auto-snapshots the prior file to
+        # <target>.deckhand-pre-<profile-id>-<ts> per the schema's
+        # default `backup: true`. Reruns produce a new snapshot
+        # alongside the existing one and overwrite the active file
+        # with the same template-rendered content. Idempotent.
+        idempotency:
+          resume: restart
+          post_check: "grep -q 'btt_init.sh (Deckhand-rewritten)' /boot/scripts/btt_init.sh"
+      - id: install_firmware
+        kind: install_firmware
+        confirm_before_run: true
+        # Honors firmware.selected from the wizard. For
+        # `firmware.selected == sovol_fork` this is a no-op (the
+        # fork is already in place). For `kalico` or
+        # `klipper_mainline` it snapshots /home/sovol/klipper to
+        # /home/sovol/klipper.stock.<ts>, clones the chosen repo
+        # into install_path, and creates the venv at venv_path.
+        idempotency:
+          # Skip if the venv at firmware.selected.venv_path already
+          # exists AND the install_path's git origin matches the
+          # selected repo. install_firmware step machinery handles
+          # the resume internally.
+          pre_check: "[ -d {{firmware.selected.venv_path}}/bin ] && [ \"$(git -C {{firmware.selected.install_path}} remote get-url origin 2>/dev/null)\" = \"{{firmware.selected.repo}}\" ]"
+          resume: cleanup_then_restart
+          cleanup: "rm -rf {{firmware.selected.install_path}}.deckhand-partial && [ -d {{firmware.selected.install_path}} ] && [ ! -f {{firmware.selected.install_path}}/.deckhand-install-complete ] && mv {{firmware.selected.install_path}} {{firmware.selected.install_path}}.deckhand-partial || true"
+      - id: install_klipper_extras
+        kind: link_extras
+        safe_to_rerun: true   # link_extras with method=copy_with_backup is idempotent — same files copied to same target with deterministic backup names.
+        target_dir: "/home/sovol/klipper/klippy/extras/"
+        method: copy_with_backup
+        sources:
+          # All 12 Sovol-modified or Sovol-original extras. For
+          # firmware.selected == sovol_fork these overlay no-op
+          # (same files already in tree). For kalico /
+          # klipper_mainline they overlay onto the upstream tree —
+          # see klipper-extras/README.md for the porting caveat
+          # around probe_eddy_current.py on Klipper 0.13.x+.
+          - ./klipper-extras/z_offset_calibration.py
+          - ./klipper-extras/probe_pressure.py
+          - ./klipper-extras/buffer_stepper.py
+          - ./klipper-extras/probe_eddy_current.py
+          - ./klipper-extras/ldc1612.py
+          - ./klipper-extras/lis2dw.py
+          - ./klipper-extras/bed_mesh.py
+          - ./klipper-extras/fan.py
+          - ./klipper-extras/heater_fan.py
+          - ./klipper-extras/homing.py
+          - ./klipper-extras/probe.py
+          - ./klipper-extras/shaper_calibrate.py
+      - id: install_screen
+        kind: install_screen
+        confirm_before_run: true
+        # install_screen step machinery handles its own resume —
+        # the user's screen choice from the wizard is captured in
+        # decision state, and this step compares against what's
+        # currently installed on the printer to no-op when matching.
+        idempotency:
+          resume: continue
+      - id: flash_main_mcu
+        kind: flash_mcus
+        which: [main]
+        confirm_before_run: true
+        # Flashing twice produces the same on-MCU state but wastes
+        # ~30 seconds and prints a warning. Skip if the running
+        # MCU's klippy.log build stamp already matches what we'd
+        # flash. Resume is `restart` because a half-finished flash
+        # via Katapult leaves the MCU in bootloader mode and the
+        # easiest recovery is to flash again from scratch.
+        idempotency:
+          pre_check: "moonraker_mcu_build_matches main mcu_klipper.bin"
+          resume: restart
+        note: |
+          Flashes the H750 main MCU from firmware/mcu_klipper.bin.
+          The blob is vendored from Sovol's MKSDEB package; reflashing
+          to the Sovol baseline is a one-shot operation that rules out
+          MCU-firmware drift as a cause of any post-install issue.
+          Optional — user can skip if they don't want to reflash.
+      - id: build_and_flash_toolhead_mcu
+        kind: conditional
+        when: "user_opted_in('build_toolhead_firmware')"
+        then:
+          - id: build_toolhead_firmware
+            kind: script
+            path: ./firmware/build-mcu-firmware.sh
+            timeout_seconds: 600
+            env:
+              CONFIG_FILE: ./firmware/toolhead-chamber-mcu-f103.config
+              OUTPUT_PATH: "/home/sovol/printer_data/build/extruder_mcu_klipper.bin"
+              KLIPPER_TREE: "/home/sovol/klipper"
+          - id: flash_toolhead_mcu
+            kind: flash_mcus
+            which: [extra_mcu]
+            confirm_before_run: true
+      - id: build_and_flash_chamber_mcu
+        kind: conditional
+        when: "user_opted_in('build_chamber_firmware')"
+        then:
+          - id: build_chamber_firmware
+            kind: script
+            path: ./firmware/build-mcu-firmware.sh
+            timeout_seconds: 600
+            env:
+              CONFIG_FILE: ./firmware/toolhead-chamber-mcu-f103.config
+              OUTPUT_PATH: "/home/sovol/printer_data/build/extra_mcu_klipper.bin"
+              KLIPPER_TREE: "/home/sovol/klipper"
+          - id: flash_chamber_mcu
+            kind: flash_mcus
+            which: [hot_mcu]
+            confirm_before_run: true
+      - id: apply_services_decisions
+        kind: apply_services
+        # apply_services drives systemd state from the wizard's
+        # services-block decisions; reapplying is idempotent
+        # (already-disabled stays disabled, etc.).
+        idempotency:
+          resume: continue
+      - id: apply_files_decisions
+        kind: apply_files
+        # apply_files acts on the wizard's files-block decisions
+        # (delete / keep / clear); rm -f / cp -p / sed -i are all
+        # idempotent in the patterns we use.
+        idempotency:
+          resume: continue
+      - id: start_services
+        kind: ssh_commands
+        safe_to_rerun: true   # systemctl enable --now is idempotent.
+        commands:
+          - "sudo systemctl daemon-reload"
+          - "sudo systemctl enable --now klipper moonraker"
+          # makerbase-client is conditionally enabled by install_screen
+          # above; we don't re-enable it here unconditionally.
+      - id: install_marker
+        kind: install_marker
+        filename: deckhand.json
+        # install_marker routes through write_file which auto-backs-up
+        # the previous marker. Reruns regenerate the marker in place.
+        safe_to_rerun: true
+      - id: run_verifiers
+        kind: verify
+        safe_to_rerun: true   # verify is read-only.
 
-verifiers: []
+  # fresh_flash: build a Deckhand-managed install on a freshly-flashed
+  # eMMC. No Sovol-published flashable image, so we start from a stock
+  # Armbian Bullseye build for BigTreeTech CB1, then layer in Sovol's
+  # klipper fork + zhongchuang_klipper screen daemon + KlipperScreen
+  # + the patch overlay + flash all three MCUs from source. Everything
+  # is buildable from the bundled artifacts under firmware/,
+  # screen-daemon/, klipper-extras/, configs/, and scripts/.
+  fresh_flash:
+    enabled: true
+    steps:
+      - id: choose_os_image
+        kind: choose_one
+        options_from: os.fresh_install_options
+      - id: choose_target_disk
+        kind: disk_picker
+        filter:
+          bus: [usb]
+          removable: true
+          size_near_bytes: "{{ hardware.sbc.emmc_size_bytes }}"
+      - id: download_os
+        kind: os_download
+      - id: flash_disk
+        kind: flash_disk
+        verify_after_write: true
+        confirm_before_run: true
+        # Pre-check: skip if the target disk's partition layout +
+        # /etc/os-release already match the post-flash expectation
+        # (i.e. the user already flashed and is resuming the rest
+        # of the flow). The flash_disk step machinery handles the
+        # progress-stream resume internally.
+        idempotency:
+          resume: cleanup_then_restart
+          cleanup: "true"   # flash_disk verifies + tracks its own write progress; cleanup is the verify-then-skip path inside the step.
+      - id: flash_done_prompt
+        kind: prompt
+        safe_to_rerun: true   # only shows a dialog.
+        message: |
+          Flash complete. Put the eMMC back in the printer and power
+          on. Wait 30-60 seconds for first-boot to extend the rootfs
+          and bring up SSH. When you can SSH to the printer, click
+          Continue.
+      - id: wait_for_ssh
+        kind: wait_for_ssh
+        timeout_seconds: 600
+        safe_to_rerun: true   # waiting is read-only.
+      - id: first_boot_setup
+        kind: ssh_commands
+        # apt-get install + curl + nmcli are individually idempotent;
+        # the heredoc-into-can0-config and `systemctl restart networking`
+        # are also safe to rerun. Note that NodeSource setup_22.x
+        # rewrites /etc/apt/sources.list.d/nodesource.list each run,
+        # which is fine.
+        safe_to_rerun: true
+        commands:
+          - "sudo apt-get update"
+          - "sudo apt-get install -y git python3-venv python3-serial python3-pip build-essential cmake libboost-all-dev libcurl4-openssl-dev libwpa-client-dev"
+          # NodeSource Node 22 is needed by the zhongchuang build.
+          - "curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -"
+          - "sudo apt-get install -y nodejs"
+          # Set up the can0 interface (mirrors stock Sovol config).
+          - "sudo tee /etc/network/interfaces.d/can0 > /dev/null <<'EOF'\nallow-hotplug can0\niface can0 can static\n    bitrate 1000000\n    up ip link set $IFACE txqueuelen 256\nEOF"
+          - "sudo systemctl restart networking"
+      - id: install_klipper
+        kind: install_firmware
+        clone_from: "https://github.com/Sovol3d/SV08MAX.git"
+        rsync_path: "home/sovol/klipper/"
+        install_path: "/home/sovol/klipper"
+        venv_path: "/home/sovol/klippy-env"
+        python_version: "3.9"
+        # Skip if the venv exists AND klipper tree's HEAD matches a
+        # known-Sovol commit. cleanup_then_restart removes a
+        # half-cloned tree on resume.
+        idempotency:
+          pre_check: "[ -d /home/sovol/klippy-env/bin ] && [ -d /home/sovol/klipper/klippy/extras ] && [ -f /home/sovol/klipper/klippy/extras/z_offset_calibration.py ]"
+          resume: cleanup_then_restart
+          cleanup: "rm -rf /home/sovol/klipper.deckhand-partial && [ -d /home/sovol/klipper ] && [ ! -f /home/sovol/klipper/klippy/extras/z_offset_calibration.py ] && mv /home/sovol/klipper /home/sovol/klipper.deckhand-partial || true"
+        note: |
+          Sovol's klipper fork is rsync'd out of their published source
+          repo at home/sovol/klipper/. The internal LAN git remote
+          (192.168.1.233) is decorative — we replace it with the
+          Sovol3d/SV08MAX origin so future updates can be pulled.
+      - id: install_klipper_extras
+        kind: link_extras
+        safe_to_rerun: true
+        target_dir: "/home/sovol/klipper/klippy/extras/"
+        method: copy_with_backup
+        sources:
+          # All 12 Sovol-modified extras. On fresh_flash with
+          # firmware.selected == sovol_fork the install_klipper
+          # rsync above already laid them down; this overlays as
+          # a no-op (same content). For kalico / klipper_mainline
+          # the overlay is meaningful and may surface conflicts —
+          # see klipper-extras/README.md.
+          - ./klipper-extras/z_offset_calibration.py
+          - ./klipper-extras/probe_pressure.py
+          - ./klipper-extras/buffer_stepper.py
+          - ./klipper-extras/probe_eddy_current.py
+          - ./klipper-extras/ldc1612.py
+          - ./klipper-extras/lis2dw.py
+          - ./klipper-extras/bed_mesh.py
+          - ./klipper-extras/fan.py
+          - ./klipper-extras/heater_fan.py
+          - ./klipper-extras/homing.py
+          - ./klipper-extras/probe.py
+          - ./klipper-extras/shaper_calibrate.py
+      - id: install_stack
+        kind: install_stack
+        # install_stack drives kiauh / moonraker / web UI / crowsnest
+        # installs; each component checks its own existing-install
+        # state. continue resume picks up at the first not-yet-installed
+        # component.
+        idempotency:
+          resume: continue
+        components:
+          - moonraker
+          - "{{stack.webui.selected}}"
+          - kiauh
+          - crowsnest
+      - id: install_configs
+        kind: link_extras
+        safe_to_rerun: true
+        target_dir: "/home/sovol/printer_data/config/"
+        method: copy_with_backup
+        sources:
+          - ./configs/printer.cfg
+          - ./configs/chamber_hot.cfg
+          - ./configs/Macro.cfg
+          - ./configs/plr.cfg
+          - ./configs/get_ip.cfg
+          - ./configs/moonraker.conf
+          - ./configs/mainsail.cfg
+          - ./configs/crowsnest.conf
+          - ./configs/buffer_stepper.cfg
+          - ./configs/shell_command.cfg
+          - ./configs/saved_variables.cfg
+          - ./configs/timelapse.cfg
+          - ./configs/moonraker_obico_macros.cfg
+          - ./configs/moonraker-obico.cfg
+          - ./configs/moonraker-obico-update.cfg
+      - id: install_home_scripts
+        kind: link_extras
+        safe_to_rerun: true
+        target_dir: "/home/sovol/"
+        method: copy_with_mode_0755
+        owner: sovol
+        sources:
+          - ./scripts/home/plr.sh
+          - ./scripts/home/clear_plr.sh
+          - ./scripts/home/factory_resets.sh
+          - ./scripts/home/get_ip.sh
+          - ./scripts/home/ota_client.sh
+      - id: install_pyhelper
+        kind: link_extras
+        safe_to_rerun: true
+        target_dir: "/home/sovol/pyhelper/"
+        method: copy_with_mode_0755
+        owner: sovol
+        sources:
+          - ./scripts/pyhelper/send_ip.py
+          - ./scripts/pyhelper/restart_firmware.py
+          - ./scripts/pyhelper/ota_process.py
+      - id: install_screen
+        kind: install_screen
+        confirm_before_run: true
+        idempotency:
+          resume: continue
+        note: |
+          Builds zhongchuang_klipper from screen-daemon/ via CMake,
+          packages it with builddeb.sh, dpkg -i installs it. The
+          systemd unit at screen-daemon/service/makerbase-client.service
+          is installed and enabled if the user kept the TFT screen
+          choice.
+      - id: write_btt_init_sh
+        kind: write_file
+        target: "/boot/scripts/btt_init.sh"
+        template: ./scripts/btt_init.sh.tmpl
+        sudo: true
+        mode: "0755"
+        owner: root
+        idempotency:
+          resume: restart
+          post_check: "grep -q 'btt_init.sh (Deckhand-rewritten)' /boot/scripts/btt_init.sh"
+      - id: build_main_mcu_firmware
+        kind: script
+        path: ./firmware/build-mcu-firmware.sh
+        timeout_seconds: 600
+        env:
+          CONFIG_FILE: ./firmware/main-mcu-h750.config
+          OUTPUT_PATH: "/home/sovol/printer_data/build/mcu_klipper.bin"
+          KLIPPER_TREE: "/home/sovol/klipper"
+        # Skip the build if the output already exists and the
+        # klipper tree's .config matches the one we'd stage. cleanup
+        # removes any partial out/ from a prior aborted build.
+        idempotency:
+          pre_check: "[ -s /home/sovol/printer_data/build/mcu_klipper.bin ] && cmp -s /home/sovol/klipper/.config /home/sovol/printer_data/deckhand/main-mcu-h750.config 2>/dev/null"
+          resume: cleanup_then_restart
+          cleanup: "rm -rf /home/sovol/klipper/out"
+        note: |
+          Sovol publishes a pre-built mcu_klipper.bin (vendored at
+          firmware/mcu_klipper.bin) but on fresh_flash we rebuild it
+          from source against the same .config750 to keep the build
+          provenance honest.
+      - id: build_toolhead_mcu_firmware
+        kind: script
+        path: ./firmware/build-mcu-firmware.sh
+        timeout_seconds: 600
+        env:
+          CONFIG_FILE: ./firmware/toolhead-chamber-mcu-f103.config
+          OUTPUT_PATH: "/home/sovol/printer_data/build/extruder_mcu_klipper.bin"
+          KLIPPER_TREE: "/home/sovol/klipper"
+        idempotency:
+          pre_check: "[ -s /home/sovol/printer_data/build/extruder_mcu_klipper.bin ]"
+          resume: cleanup_then_restart
+          cleanup: "rm -rf /home/sovol/klipper/out"
+      - id: build_chamber_mcu_firmware
+        kind: script
+        path: ./firmware/build-mcu-firmware.sh
+        timeout_seconds: 600
+        env:
+          CONFIG_FILE: ./firmware/toolhead-chamber-mcu-f103.config
+          OUTPUT_PATH: "/home/sovol/printer_data/build/extra_mcu_klipper.bin"
+          KLIPPER_TREE: "/home/sovol/klipper"
+        idempotency:
+          pre_check: "[ -s /home/sovol/printer_data/build/extra_mcu_klipper.bin ]"
+          resume: cleanup_then_restart
+          cleanup: "rm -rf /home/sovol/klipper/out"
+      - id: flash_mcus
+        kind: flash_mcus
+        which: [main, extra_mcu, hot_mcu]
+        confirm_before_run: true
+        idempotency:
+          resume: restart
+      - id: start_services
+        kind: ssh_commands
+        safe_to_rerun: true
+        commands:
+          - "sudo systemctl daemon-reload"
+          - "sudo systemctl enable --now klipper moonraker KlipperScreen"
+      - id: install_marker
+        kind: install_marker
+        filename: deckhand.json
+        safe_to_rerun: true
+      - id: run_verifiers
+        kind: verify
+        safe_to_rerun: true
+
+verifiers:
+  - id: klipper_service_active
+    kind: ssh_command
+    command: "systemctl is-active klipper"
+    expect_stdout_contains: active
+  - id: moonraker_reports_klipper
+    kind: http_get
+    url: "http://{{host}}:7125/printer/info"
+    expect_json_path: "$.result.state"
+    expect_value: ready
+  - id: no_wifi_server_listening
+    kind: ssh_command
+    command: "ss -tnlp 2>/dev/null | grep -c ':5000 '"
+    expect_stdout_equals: "0"
+    note: "After stock_keep, wifi_server.service should be disabled and port 5000 unbound."
+  - id: ssh_host_key_ed25519_regenerated
+    kind: ssh_command
+    command: "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key | awk '{print $2}'"
+    expect_stdout_not_equals: "SHA256:r29wTDuG7tzLvsyF4P06NSatzmc6dKh3dHWw3uGXs5w"
+    note: "Factory-baked ed25519 host key fingerprint must NOT match after stock_keep."
+  - id: ssh_host_key_rsa_regenerated
+    kind: ssh_command
+    command: "ssh-keygen -lf /etc/ssh/ssh_host_rsa_key | awk '{print $2}'"
+    expect_stdout_not_equals: "SHA256:mWrPlIsu+ciWZH3iYUw1l3hEt8zQ5B3bpcBiqoIgoHo"
+    note: "Factory-baked RSA host key fingerprint must NOT match after stock_keep."
+  - id: ssh_host_key_ecdsa_regenerated
+    kind: ssh_command
+    command: "ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key | awk '{print $2}'"
+    expect_stdout_not_equals: "SHA256:HF6v3Z3Ef9E4MDRyJTouFmV3JDnQdpbc7PPVpwN4VXs"
+    note: "Factory-baked ECDSA host key fingerprint must NOT match after stock_keep."
+  - id: factory_wifi_profiles_removed
+    kind: ssh_command
+    command: "ls /etc/NetworkManager/system-connections/ 2>/dev/null | grep -cE '^(SPIXINETGEAR26|Spixi|ZYIPTest)\\.nmconnection$'"
+    expect_stdout_equals: "0"
+  - id: zhongchuang_daemon_running_if_tft_chosen
+    kind: ssh_command
+    command: "systemctl is-active makerbase-client.service"
+    expect_stdout_contains: active
+    skip_when: "selected(screens, klipperscreen_hdmi)"
+    note: "If the user kept the stock TFT screen, the zhongchuang_klipper daemon must be active."
+  - id: chamber_heater_named_chamber_temp
+    kind: ssh_command
+    command: "grep -c '^\\[heater_generic chamber_temp\\]' /home/sovol/printer_data/config/chamber_hot.cfg"
+    expect_stdout_equals: "1"
+    note: "The Max's chamber_hot.cfg uses [heater_generic chamber_temp], not chamber_heater. M141/M191 macros wire to this name."

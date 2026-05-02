@@ -6,6 +6,35 @@ and the authoring guide in `AUTHORING.md`.
 
 ## Unreleased
 
+### Profiles
+
+- **`sovol-sv08-max` promoted from `stub` to `alpha`.** Profile is
+  now structurally complete with both `flows.stock_keep` (20 steps)
+  and `flows.fresh_flash` (22 steps) declared end-to-end. Hardware,
+  identity, services, MCU topology, and screen-daemon blocks all
+  verified against a live audit of a stock unit. All load-bearing
+  artifacts vendored from Sovol's published source at
+  [Sovol3d/SV08MAX](https://github.com/Sovol3d/SV08MAX): stock
+  configs, Sovol-original klippy/extras (`z_offset_calibration.py`,
+  `probe_pressure.py`, `buffer_stepper.py`, modified
+  `probe_eddy_current.py` / `ldc1612.py` / `lis2dw.py`), Katapult
+  flash tooling, the pre-built H750 main-MCU firmware blob from
+  Sovol's MKSDEB, and the full `zhongchuang_klipper` serial-TFT
+  screen daemon source tree. Promotion to `beta` gated on validating
+  flows end-to-end on real hardware.
+
+- **Sovol SPI-XI image lineage findings.** The audit surfaced that
+  the SPI-XI base image used by the Sovol SV08 Max (and the Sovol
+  Zero) ships with three pre-shared SSH host keys (ed25519, RSA,
+  ECDSA) all generated on a build VM named `chris-virtual-machine`
+  and identical across every shipped unit. Both new profiles include
+  a `regenerate_ssh_host_keys` step at the start of `stock_keep`
+  that runs BEFORE any user fingerprint-trust prompt. Also surfaced:
+  the `wifi_server.service` (LAN-exposed root command server with a
+  trivially-escapable `/command` endpoint) is a critical-severity
+  finding common to both profiles; both flows disable + mask it
+  before any other LAN-side state change.
+
 ### Changed
 
 - **`install_marker` now routes through `write_file`.** The previous

@@ -1,0 +1,25 @@
+# Never commit raw audit data into the published profile registry.
+# Curated audit docs (STOCK-INVENTORY.md, ALIGNMENT-WITH-ZERO.md,
+# ARCHITECTURE.md) belong in printers/<id>/docs/ and DO get committed.
+# Raw probe dumps + vendor-source clones live one level up at
+# installer/.audits/<id>-<date>/ and never enter this repo.
+audit/
+audits/
+.audits/
+
+# Profile-side build artifacts (if a flow ever produces them under a
+# printer dir). Profile-yaml-driven artifacts that are part of the
+# install (firmware/mcu_klipper.bin, screen-daemon/lib/*.so) ARE
+# committed. Generic build cruft is not.
+**/build/
+**/.cache/
+*.deb
+*.tar.gz
+*.tmp
+
+# Python / yaml linting cruft if any tooling runs locally.
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.venv/
+*.pyc

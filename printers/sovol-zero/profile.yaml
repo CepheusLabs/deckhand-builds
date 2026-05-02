@@ -1,55 +1,1411 @@
 schema_version: 1
 profile_id: sovol-zero
-profile_version: 0.0.1
+profile_version: 0.3.0
 display_name: Sovol Zero
 manufacturer: Sovol
 model: Zero
-status: stub
+status: alpha
 maintainers:
   - { name: "Cepheus Labs", contact: "support@cepheuslabs.com" }
 
-# Placeholder profile. Hardware facts, detection rules, stock-OS inventory,
-# and flow declarations are not yet filled in. Contributions welcome.
+# Status: alpha. Both flows are wired:
+#
+# - flows.stock_keep — security-hardening pass against the stock
+#   SPI-XI image. Stock Klipper / Moonraker / KlipperScreen /
+#   Mainsail are kept in place; only the security-critical bits
+#   (wifi_server LAN RCE, pre-shared SSH host keys, factory wifi
+#   PSKs in NetworkManager + /boot/system.cfg, vendor-daemon boot
+#   hooks) get cleaned up. User decisions on each vendor service
+#   and file are surfaced via apply_services / apply_files.
+#
+# - flows.fresh_flash — flash a clean BigTreeTech CB1 image to the
+#   eMMC over a USB adapter, then layer the chosen Klipper variant
+#   (Sovol's fork by default; vanilla Klipper or Kalico optional with
+#   the Sovol klippy/extras overlay), the stock Sovol printer.cfg /
+#   Macro.cfg / chamber_hot.cfg / plr.cfg / etc. cloned from
+#   github.com/Sovol3d/SOVOL-ZERO at a pinned commit, the standard
+#   Moonraker + Mainsail/Fluidd + KIAUH + Crowsnest stack, and the
+#   three MCU firmwares built and katapult-flashed over CAN.
+#
+# Verified against a live audit (see docs/STOCK-INVENTORY.md; raw
+# probe dumps are out-of-repo under
+# installer/.audits/sovol-zero-20260501/ because they include factory
+# wifi PSKs and pre-shared SSH host-key fingerprints).
+
+compatible_with:
+  firmware_variants:
+    - id: default
+      display_name: Sovol Zero (stock SPI-XI image)
+      notes: |
+        Single SKU observed. The on-disk dpkg package is named
+        `sv08mini-update-packge` (typo from Sovol), suggesting Sovol
+        bundles SV08-Mini and Zero into the same update channel — so
+        the Zero may share an installer trace with that sibling SKU.
+        Sovol publishes the Zero's user-side files at
+        https://github.com/Sovol3d/SOVOL-ZERO and the klipper fork at
+        https://github.com/Sovol3d/klipper (GPL-3.0); both are pinned
+        as the canonical install sources by this profile.
+
+# Hosts the install flow needs to reach.
+required_hosts:
+  - github.com
+  - raw.githubusercontent.com
+  - codeload.github.com
+  - api.github.com
+  - objects.githubusercontent.com  # GitHub releases asset CDN (BTT CB1 image download)
+  - deb.debian.org
+  - security.debian.org
+  - apt.armbian.com  # BTT CB1 base image is Armbian-derived; fresh_flash apt steps may hit this
+  - pypi.org
+  - files.pythonhosted.org
+
+identification:
+  # Tiered. marker_file is the post-install long-term identifier
+  # Deckhand writes; the rest are stock-image fingerprints.
+  marker_file: deckhand.json
+  # Stock klipper.service description string is "Klipper 3D Printer
+  # Firmware SV1" — distinctive enough to separate a Sovol Zero from a
+  # generic CB1 + kiauh box on the same LAN. Matched via Moonraker's
+  # printer.info.app/version once we connect, since Moonraker doesn't
+  # expose a klippy registered-object name for this; recorded here as a
+  # documentation hook rather than an active probe.
+  hostname_patterns:
+    - '^SPI-XI(-\d+)?$'
+  # Note: the Zero ships moonraker-obico.cfg with a [meta] block naming
+  # the printer ("printer_model: SOVOL ZERO" /
+  # "board_model: H616_JC_3Z_5160_V1.2"). That's the strongest-but-soft
+  # identifier we have — surfaced via stock_os.detections below rather
+  # than identification, since the schema's identification block is a
+  # closed set of marker_file / moonraker_objects / hostname_patterns.
 
 hardware:
-  architecture: null                  # TBD — likely aarch64 or armv7l
+  architecture: aarch64
   sbc:
-    soc: null
-    board: null
-  kinematics: null
-  build_volume_mm: null
+    soc: allwinner-h616
+    board: bigtreetech-cb1
+    emmc_size_bytes: 7818182656
+  kinematics: corexy
+  build_volume_mm: { x: 155, y: 152, z: 155 }
+  steppers:
+    - { axis: x, driver: tmc5160, mode: spi }
+    - { axis: y, driver: tmc5160, mode: spi }
+    - { axis: z, driver: tmc2209, mode: uart }
+    - { axis: extruder, driver: tmc2209, mode: uart }
+  sensors:
+    - { kind: thermistor, name: extruder, source: ntc, notes: "Custom Sovol thermistor table 'my_thermistor_e' in printer.cfg" }
+    - { kind: thermistor, name: bed, source: ntc }
+    - { kind: thermistor, name: chamber_outlet, source: ntc, notes: "EPCOS 100K B57560G104F via hot_mcu PA4" }
+    - { kind: thermistor, name: chamber_heater, source: ntc, notes: "EPCOS 100K B57560G104F via hot_mcu PA5" }
+    - { kind: filament_switch, name: filament_sensor, pin: "main:PB2" }
+    - { kind: accelerometer, name: lis2dw, location: toolhead, transport: spi, notes: "On extruder_mcu PB12-PB15, axes_map: x,z,y" }
+    - { kind: eddy_probe, name: eddy, sensor: ldc1612, transport: i2c, notes: "On extruder_mcu i2c2 (PB10/PB11)" }
+  features:
+    - corexy_high_acceleration  # printer.cfg: max_velocity 1200, max_accel 40000
+    - eddy_current_z_probe
+    - heated_chamber
+    - chamber_fan
+    - accelerometer_on_toolhead
+    - filament_runout_sensor
+    - power_loss_recovery
+    - touchscreen_klipperscreen
 
 os:
   stock:
-    distro: null
-    version: null
-  fresh_install_options: []
+    distro: debian
+    version: "11"
+    codename: bullseye
+    python: "3.9.2"
+    image_brand: "SPI-XI 2.3.3"
+    armbian_derived: true
+    notes: |
+      Stock unit observed at /etc/os-release "SPI-XI 2.3.3 Bullseye"
+      (which is Debian Bullseye with Sovol branding overlay; the image
+      retains many `armbian-*` services and the standard armbian motd
+      scripts but not /etc/armbian-release). Kernel
+      5.16.17-sun50iw9 #2.3.3 SMP Tue Oct 29 18:49:57 CST 2024,
+      built on a Chinese-locale build host.
+  fresh_install_options:
+    # SECURITY: sha256 is schema-required per fresh_install entry. The
+    # download sidecar enforces the match before the elevated helper
+    # writes anything to the eMMC. Bumping these is a conscious
+    # action: fetch the new <name>.sha256 file from the same release
+    # tag and paste the 64-hex value here alongside the new URL.
+    - id: btt-cb1-debian13-minimal-v3-1-0
+      display_name: BigTreeTech CB1 — Debian 13 minimal CLI (recommended)
+      architecture: aarch64
+      url: https://github.com/bigtreetech/CB1/releases/download/V3.1.0/CB1_Debian13_minimal_kernel7.0_20260430.img.xz
+      sha256: "3a7d3c24b85065847094a2102ab16ae4a0a03445a494b73f229049bd1f5f4387"
+      size_bytes_approx: 472913748
+      recommended: true
+      notes: |
+        Clean BigTreeTech CB1 V3.1.0 image (April 2026 build,
+        Debian 13 / Trixie, kernel 7.0). Minimal CLI base — Klipper /
+        Moonraker / Mainsail are NOT preinstalled, so the
+        install_firmware + install_stack steps build them from source.
+        ~473 MB compressed, ~3 GB on-disk after flash. Default
+        credentials on a freshly-flashed BTT CB1 image are biqu / biqu
+        (NOT sovol/sovol — that's only on Sovol's SPI-XI image, which
+        gets overwritten by the flash).
+    - id: btt-cb1-debian13-klipper-v3-1-0
+      display_name: BigTreeTech CB1 — Debian 13 with Klipper preinstalled
+      architecture: aarch64
+      url: https://github.com/bigtreetech/CB1/releases/download/V3.1.0/CB1_Debian13_Klipper_kernel7.0_20260430.img.xz
+      sha256: "e6b4f1d373998d2c93e09a7def2ce3e99dfc164145f088332c73fa0af723709b"
+      size_bytes_approx: 1175113816
+      notes: |
+        Same V3.1.0 base but with Klipper / Moonraker /
+        Mainsail+Fluidd / KIAUH / Crowsnest preinstalled by BTT.
+        1.18 GB compressed. Picking this skips most of install_stack
+        but install_firmware still runs to lay the chosen Klipper
+        variant (Sovol's fork by default) on top of BTT's
+        preinstalled Klipper, which gets snapshotted to
+        klipper.btt-stock.<ts> before replacement.
+  boot_mode: mbr
+  boot_partition:
+    device_pattern: "mmcblk*p1"
+    mountpoint: /boot
+    fstype: vfat
+    label: BOOT
+    contains: ["scripts/", "system.cfg", "gcode/"]
+    notes: |
+      The 256 MB FAT16 /boot partition holds Sovol's runtime configurable
+      script set under /boot/scripts/ and a user-editable /boot/system.cfg
+      (timezone, hostname, KS rotation, wifi credentials). A user can
+      edit these by mounting the boot partition on a workstation, no
+      shell access required. Any rewrite of the boot scripts on
+      stock_keep should preserve the partition's vfat layout.
 
 ssh:
   default_port: 22
-  default_credentials: []
+  default_credentials:
+    - { user: sovol, password: sovol }
+  recommended_user_after_install: sovol
+  fingerprint_notes: |
+    The Sovol image ships a factory-baked SSH host key triple from a
+    factory build VM (`root@chris-virtual-machine`):
+      ed25519  SHA256:r29wTDuG7tzLvsyF4P06NSatzmc6dKh3dHWw3uGXs5w
+      rsa      SHA256:mWrPlIsu+ciWZH3iYUw1l3hEt8zQ5B3bpcBiqoIgoHo
+      ecdsa    SHA256:HF6v3Z3Ef9E4MDRyJTouFmV3JDnQdpbc7PPVpwN4VXs
+    The SAME triple is present on every shipped unit using the SPI-XI
+    image — confirmed across four Sovol Zero IPs on one LAN, and
+    cross-referenced with a parallel SV08 Max audit at the same
+    timestamp. Until host keys are regenerated, the SSH host
+    fingerprint is not a per-unit identifier and a MITM that obtains
+    any one private key can impersonate every shipped Sovol Zero or
+    SV08-line printer. The stock_keep flow regenerates all three via
+    `ssh-keygen -A` after deleting the factory keys; the new
+    fingerprints are surfaced to the user for re-trust on the next
+    SSH login. fresh_flash gets fresh host keys from BTT's first-boot
+    setup (different lineage, not chris-virtual-machine).
 
 firmware:
-  choices: []
-  default_choice: null
+  default_choice: sovol_fork
+  replace_stock_in_place: true
+  snapshot_before_replace: true
+  choices:
+    - id: sovol_fork
+      display_name: Sovol's Klipper fork (recommended)
+      description: >
+        Sovol's official Klipper distribution at
+        github.com/Sovol3d/klipper (GPL-3.0). Includes the
+        Sovol-original z_offset_calibration / probe_pressure modules
+        and the modifications to probe_eddy_current / ldc1612 / lis2dw
+        / bed_mesh / probe / homing / shaper_calibrate / fan /
+        heater_fan that the stock printer.cfg references. This is what
+        Sovol publishes alongside the printer; pick this on
+        stock_keep if you want to refresh klipper to Sovol's latest
+        published version, or on fresh_flash to match the as-shipped
+        firmware behaviour.
+      repo: https://github.com/Sovol3d/klipper
+      ref: master
+      install_path: "~/klipper"
+      venv_path: "~/klippy-env"
+      python_min: "3.9"
+      recommended: true
+    - id: klipper_mainline
+      display_name: Klipper (upstream mainline)
+      description: >
+        Vanilla Klipper from github.com/Klipper3d/klipper. Picks up
+        upstream features and fixes faster than Sovol's snapshot.
+        install_sovol_klipper_extras.sh runs immediately after
+        install to overlay Sovol's klippy/extras on top, so the stock
+        printer.cfg's z_offset_calibration / probe_eddy_current
+        (with vir_contact_speed) / probe_pressure references resolve.
+        Tradeoff: the overlay may break across upstream Klipper API
+        changes — eddy probe internals especially.
+      repo: https://github.com/Klipper3d/klipper
+      ref: master
+      install_path: "~/klipper"
+      venv_path: "~/klippy-env"
+      python_min: "3.8"
+    - id: kalico
+      display_name: Kalico (community fork — was Danger Klipper)
+      description: >
+        Kalico is the community-maintained Klipper fork formerly known
+        as Danger Klipper. Same Sovol klippy/extras overlay applies as
+        for upstream Klipper. Pick this if you want Kalico-only
+        features (more permissive macros, faster input-shaper
+        calibration, relaxed safety rails for unjamming).
+      repo: https://github.com/KalicoCrew/kalico
+      ref: main
+      install_path: "~/kalico"
+      venv_path: "~/kalico-env"
+      python_min: "3.9"
 
-stack: {}
-mcus: []
-screens: []
+stack:
+  moonraker:
+    repo: https://github.com/Arksine/moonraker
+    ref: master
+    install_path: "~/moonraker"
+    venv_path: "~/moonraker-env"
+    port: 7125
+    trusted_clients:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 127.0.0.0/8
+      - 169.254.0.0/16
+    notes: |
+      Stock observed at upstream commit 4e00a076 (2024-10-21), branch
+      master, no Sovol modifications. Service description string is
+      "API Server for Klipper SV1".
+  webui:
+    choices:
+      - id: mainsail
+        display_name: Mainsail
+        description: >-
+          Already installed and active on the stock image. Served by
+          nginx on port 80. Default choice for stock_keep.
+        release_repo: mainsail-crew/mainsail
+        asset_pattern: "mainsail.zip"
+        install_path: "~/mainsail"
+        default_port: 80
+      - id: fluidd
+        display_name: Fluidd
+        description: >-
+          Not installed on stock; Deckhand can add it as an alternative.
+        release_repo: fluidd-core/fluidd
+        asset_pattern: "fluidd.zip"
+        install_path: "~/fluidd"
+        default_port: 8808
+    default_choices: [mainsail]
+    allow_multiple: true
+    allow_none: true
+  kiauh:
+    repo: https://github.com/dw-0/kiauh
+    ref: master
+    install_path: "~/kiauh"
+    default_install: true
+    notes: |
+      Already installed at /home/sovol/kiauh on the stock image (used
+      during Sovol's factory build, per /home/sovol/.bash_history).
+  crowsnest:
+    repo: https://github.com/mainsail-crew/crowsnest
+    ref: master
+    install_path: "~/crowsnest"
+    included: true
+    notes: |
+      Already installed and active. ustreamer at 127.0.0.1:8080,
+      single camera /dev/video0, 720x540 @ 15 fps MJPEG.
+
+mcus:
+  - id: main
+    display_name: Main MCU (STM32H750 — CAN bridge)
+    chip: stm32h750xx
+    clock_hz: 400000000
+    transport:
+      kind: canbus_bridge
+      bridge_via: usb_gs_can  # 1d50:606f Geschwister Schneider — confirmed via lsusb
+      can_uuid: "0d1445047cdd"
+      can_bitrate: 1000000
+      flash_method: katapult_can
+      flash_script: "~/printer_data/build/mcu_update_fw.sh"
+      flash_blob: "~/printer_data/build/mcu_klipper.bin"
+    notes: |
+      Bridges USB host to the can0 interface. Live klipper.log build
+      stamp: "14d7b18-dirty-20250210_015142-SPI-XI". The flash script
+      also recognises a katapult bootloader exposed as USB device
+      "usb-katapult_stm32h750xx" if the chip is reset into bootloader
+      via USB rather than CAN. The mcu_klipper.bin blob is NOT present
+      on the audited unit — only extruder_mcu_klipper.bin is — so a
+      stock_keep that wants to reflash the main MCU has to fetch the
+      blob from elsewhere.
+  - id: extruder
+    display_name: Extruder MCU (STM32F103)
+    chip: stm32f103xe
+    clock_hz: 72000000
+    transport:
+      kind: canbus
+      can_uuid: "61755fe321ac"
+      can_bitrate: 1000000
+      flash_method: katapult_can
+      flash_script: "~/printer_data/build/extruder_mcu_update_fw.sh"
+      flash_blob: "~/printer_data/build/extruder_mcu_klipper.bin"
+    notes: |
+      Carries: extruder stepper (TMC2209 UART, address 3),
+      hotend heater (PB7) + thermistor (PA5),
+      hotend fan (PA6) + tach (PA1),
+      part fan / fan0 (PB0),
+      LDC1612 eddy probe over i2c2 (PB10/PB11),
+      LIS2DW accelerometer over SPI (PB12-PB15).
+      Live build stamp: "cc8afd8-dirty-20250310_015728-SPI-XI".
+  - id: hot_mcu
+    display_name: Hot/Chamber MCU (STM32F103)
+    chip: stm32f103xe
+    clock_hz: 72000000
+    transport:
+      kind: canbus
+      can_uuid: "58a72bb93aa4"
+      can_bitrate: 1000000
+      flash_method: katapult_can
+      flash_script: "~/printer_data/build/extra_mcu_update_fw.sh"
+      flash_blob: "~/printer_data/build/extra_mcu_klipper.bin"
+    notes: |
+      Carries: chamber heater (PA0) + thermistor (PA5),
+      chamber outlet temp (PA4),
+      chamber fan (PA6) + tach (PA1),
+      hot_led indicator (PA7),
+      and the chamber MCU's own internal temp sensor.
+      Defined in chamber_hot.cfg, included from printer.cfg.
+      Live build stamp: "cc8afd8-dirty-20250310_015837-SPI-XI".
+      The extra_mcu_klipper.bin blob is NOT present on the audited
+      unit; same constraint as the main MCU.
+
+screens:
+  - id: klipperscreen_stock
+    display_name: KlipperScreen (stock — touchscreen on /dev/tty7)
+    source_kind: stock_in_place
+    install_path: "~/KlipperScreen"
+    venv_path: "~/.KlipperScreen-env"
+    backend: x11_xinit
+    tty: "/dev/tty7"
+    start_script: "~/KlipperScreen/scripts/KlipperScreen-start.sh"
+    start_script_modified_by_vendor: false
+    status: stable
+    recommended: true
+    notes: |
+      The stock image runs upstream KlipperScreen unmodified — start
+      script is the upstream `xinit $KS_XCLIENT` template with no
+      Sovol-side bootstrap of vendor daemons. No replacement needed
+      for stock_keep beyond ensuring the service runs cleanly. (The
+      live audit caught it in `auto-restart` because Xorg was exiting
+      mid-handshake; this is the touchscreen X driver path during
+      early boot, not a Sovol modification.)
+  - id: secondary_lcd_uc1701
+    display_name: Optional rotary-encoder LCD (UC1701, stock klipper [display] block)
+    source_kind: hardware_optional
+    notes: |
+      printer.cfg declares a [display] block for a UC1701 monochrome
+      SPI LCD on the EXP1/EXP2 headers with rotary encoder + click
+      and a 3-pixel neopixel chain ([neopixel Screen_Colour]). The
+      ~/patch/menu.cfg + menu.py overlay in /home/sovol/patch/ targets
+      this LCD's menu system. Whether the LCD is physically populated
+      on production units is unverified by the live audit; it would
+      explain why Sovol ships menu overlays in patch/ that nothing
+      else uses, but the touchscreen UI is independent of this. Not
+      a stock_keep blocker either way.
+
 addons: []
 
 stock_os:
-  detections: []
-  services: []
-  files: []
-  paths: []
+  detections:
+    - kind: file_contains
+      label: "Sovol Zero printer-model identifier in moonraker-obico.cfg"
+      path: "/home/sovol/printer_data/config/moonraker-obico.cfg"
+      pattern: "printer_model:\\s*SOVOL ZERO"
+      required: true
+      note: >
+        Sovol's stock moonraker-obico.cfg has a [meta] block naming the
+        printer model and board revision. Strongest stock-image signal
+        we have for separating a Zero from a sibling SV08 Mini / SV08
+        Max running the same SPI-XI image.
+    - kind: file_contains
+      label: "Sovol board model H616_JC_3Z_5160_V1.2"
+      path: "/home/sovol/printer_data/config/moonraker-obico.cfg"
+      pattern: "board_model:\\s*H616_JC_3Z_5160_V1\\.2"
+      required: false
+      note: >
+        Same source as above; second-tier confirmation that the SBC +
+        main board match the Zero's expected configuration.
+    - kind: file_exists
+      label: "Sovol's vendor boot orchestrator is in place"
+      path: "/boot/scripts/btt_init.sh"
+      required: true
+      note: >
+        Called from /etc/rc.local at every boot. Its presence confirms
+        we're on the SPI-XI image (the BigTreeTech CB1 base image).
+    - kind: file_exists
+      label: "Sovol-original z_offset_calibration extras module"
+      path: "/home/sovol/klipper/klippy/extras/z_offset_calibration.py"
+      required: true
+      note: >
+        Copyright header reads `Sovol3d <info@sovol3d.com>`. Confirms
+        the klipper tree is Sovol's fork, not vanilla.
+    - kind: file_contains
+      label: "System hostname matches the SPI-XI image"
+      path: "/etc/hostname"
+      pattern: "^SPI-XI"
+      required: false
+      note: >
+        Stock hostname is `SPI-XI`. A different hostname just means
+        the owner changed it.
+
+  services:
+    - id: wifi_server
+      display_name: Sovol wifi_server (LAN-exposed root command server)
+      systemd_unit: wifi_server.service
+      process_pattern: "wifi_server.py"
+      launched_by:
+        kind: systemd
+        unit: wifi_server.service
+        runs_as: root
+      listens_on:
+        - { protocol: tcp, port: 5000, bind: "0.0.0.0", auth: none }
+      default_action: disable
+      severity: critical
+      wizard:
+        question: Disable Sovol's wifi_server?
+        helper_text: |
+          Sovol ships a Flask app at /usr/local/bin/wifi_server.py that
+          listens on 0.0.0.0:5000 as ROOT with NO authentication and
+          exposes a /command endpoint that runs arbitrary shell
+          commands matching a weak prefix filter. Trivially escapable.
+          Anyone on the LAN can run shell as root. Disabling does not
+          break anything user-facing — it was used by an older Sovol
+          mobile app for wifi setup; the current touchscreen does
+          wifi setup directly via NetworkManager.
+        options:
+          - { id: disable, label: "Disable (strongly recommended)" }
+          - { id: keep, label: "Keep (NOT recommended)" }
+        recommended: disable
+
+    - id: ota_service
+      display_name: Sovol OTA daemon (Comgrow update channel)
+      process_pattern: "ota_service.sh"
+      launched_by:
+        kind: script
+        path: "/boot/scripts/btt_init.sh"
+      phones_home:
+        - { host: "www.comgrow.com", port: 443, on_demand: true, trigger: "SIGUSR1 from ~/ota_client.sh" }
+      default_action: disable
+      wizard:
+        question: Disable Sovol's OTA daemon?
+        helper_text: |
+          On-demand OTA: only checks www.comgrow.com when the user
+          taps the touchscreen "_OTA" macro. Verifies downloads with
+          MD5 (no signature) and runs `dpkg -i` then reboots. If you
+          want to keep using Sovol's update channel, leave it; if
+          you're on Deckhand-managed installs and prefer to update
+          klipper/moonraker via Moonraker's update_manager + apt for
+          OS pieces, disable.
+        options:
+          - { id: disable, label: "Disable" }
+          - { id: keep, label: "Keep" }
+        recommended: disable
+
+    - id: connect_wifi
+      display_name: connect_wifi.sh (boot-time wifi connector with USB fallback)
+      process_pattern: "connect_wifi.sh"
+      launched_by:
+        kind: script
+        path: "/boot/scripts/btt_init.sh"
+      default_action: disable
+      wizard:
+        question: How should boot-time wifi setup behave?
+        helper_text: |
+          On every boot, /boot/scripts/connect_wifi.sh reads
+          WIFI_SSID/WIFI_PASSWD from /boot/system.cfg AND, as a
+          fallback, looks for ~/printer_data/gcodes/USB/wifi.cfg on
+          any plugged-in USB stick. The USB branch is a physical-
+          access wifi-takeover vector. For most users the right answer
+          is "disable after I've set wifi" — NetworkManager remembers
+          the network on its own.
+        options:
+          - { id: disable, label: "Disable (recommended once wifi is set)" }
+          - { id: keep, label: "Keep (USB-stick provisioning still works)" }
+        recommended: disable
+
+    - id: file_change_save
+      display_name: file_change_save.sh (config-dir inotify sync)
+      process_pattern: "file_change_save.sh"
+      launched_by:
+        kind: script
+        path: "/boot/scripts/btt_init.sh"
+      default_action: remove
+      wizard: none
+      note: |
+        Watches ~/printer_data/config for writes and calls `sync`.
+        Klipper/Moonraker handle persistence on their own; this is
+        duplicate work and writes a noisy log to /home/mount.log.
+        Safe to drop.
+
+    - id: hostapd_vestigial
+      display_name: hostapd (enabled but no AP config)
+      systemd_unit: hostapd.service
+      default_action: disable
+      wizard: none
+      note: |
+        hostapd.service is `enabled` and constantly auto-restarts
+        because no AP config exists. Vestigial from the BTT CB1 base
+        image. Disabling silences the restart loop.
+
+    - id: moonraker_obico
+      display_name: moonraker-obico (Obico cloud bridge)
+      systemd_unit: moonraker-obico.service
+      default_action: disable
+      phones_home:
+        - { host: "app.obico.io", port: 443, always_on: true }
+      wizard:
+        question: Enable Obico cloud monitoring?
+        helper_text: |
+          Sovol ships moonraker-obico enabled but unconfigured — it
+          dials app.obico.io continuously even with no API key, just
+          waiting to be paired. Most users don't pair, so it's a
+          continuous outbound heartbeat to a Google Cloud-hosted
+          endpoint with no benefit. Enable only if you actually use
+          Obico.
+        options:
+          - { id: disable, label: "Disable (recommended unless you use Obico)" }
+          - { id: keep, label: "Keep enabled (you'll register via the Obico app)" }
+        recommended: disable
+
+    - id: klipperscreen
+      display_name: KlipperScreen (touchscreen UI — stock script, untouched)
+      systemd_unit: KlipperScreen.service
+      launched_by:
+        kind: script
+        path: "/home/sovol/KlipperScreen/scripts/KlipperScreen-start.sh"
+        note: |
+          Unlike the Phrozen Arco's KlipperScreen-start.sh (which
+          Phrozen replaces with a heavily-customised launcher), Sovol
+          ships the upstream KlipperScreen-start.sh unmodified. No
+          rewriting needed on stock_keep.
+      default_action: keep
+      wizard: none
+
+  files:
+    - id: factory_wifi_profiles
+      display_name: Factory test wifi credentials in NetworkManager
+      paths:
+        - "/etc/NetworkManager/system-connections/SPIXINETGEAR26.nmconnection"
+        - "/etc/NetworkManager/system-connections/Spixi.nmconnection"
+        - "/etc/NetworkManager/system-connections/ZYIPTest.nmconnection"
+      default_action: delete
+      severity: privacy
+      wizard:
+        helper_text: |
+          Three wifi profiles with plaintext PSKs (`Spixi2023`,
+          `ZCSW$888`, `12345678`) are baked into every shipped Sovol
+          Zero — they're the contract manufacturer's test networks.
+          Recommended to delete: keeping them on disk lets any LAN
+          attacker who pwns this printer learn those credentials, and
+          if your home wifi happens to share an SSID, the printer may
+          auto-connect to a less-secure network. Deletion does not
+          affect the wifi profile you actually configured.
+        recommended: delete
+
+    - id: boot_system_cfg_wifi
+      display_name: Cleartext wifi credentials in /boot/system.cfg
+      paths: ["/boot/system.cfg"]
+      # default_action is `keep` because the file itself is needed
+      # (timezone, KS rotation, sound/vibration toggles); the cleanup
+      # action is to clear the WIFI_SSID/WIFI_PASSWD fields in place
+      # via a dedicated rewrite step in the flow. Captured here so
+      # the audit trail records the concern.
+      default_action: keep
+      severity: privacy
+      wizard:
+        helper_text: |
+          /boot/system.cfg has a `WIFI_SSID="ZYIPTest"` /
+          `WIFI_PASSWD="12345678"` pair that connect_wifi.sh reads on
+          every boot. Clearing these fields stops the boot-time
+          re-connect to the factory test wifi without removing the
+          file (other settings — timezone, KS rotation, sound /
+          vibration — stay). The flow's `stock_keep` step
+          `rewrite_boot_system_cfg` is responsible for the in-place
+          edit; this entry is a privacy advisory.
+
+    - id: ttyS3_dev_leftover
+      display_name: ~/ttyS3.py (developer probe leftover)
+      paths: ["/home/sovol/ttyS3.py"]
+      default_action: delete
+      wizard:
+        helper_text: 366-byte test script that opens /dev/ttyS3 and writes "Hello!". No user value.
+
+    - id: patch_dir
+      display_name: ~/patch/ (factory-build overlay scaffolding)
+      paths: ["/home/sovol/patch/"]
+      default_action: keep
+      wizard: none
+      note: |
+        Holds Sovol's overlay of klippy/extras/display/{menu.py, menu.cfg, display.cfg}.
+        Already applied to the running klipper tree at factory build time. The patch/
+        directory itself is no longer load-bearing, but ~/factory_resets.sh expects
+        ~/patch/config/*.cfg as the canonical reset payload (currently empty on the
+        audited unit). Keep until factory_resets behavior is wired or removed.
+
+    - id: offline_lib_flask
+      display_name: ~/offline_lib/flask/ (factory-build pip cache)
+      paths: ["/home/sovol/offline_lib/"]
+      default_action: delete
+      wizard:
+        helper_text: 9 .whl files used during the factory build to install Flask offline. No runtime use.
+
+    - id: usbmount_sources
+      display_name: ~/usbmount/ (already-installed make sources)
+      paths: ["/home/sovol/usbmount/"]
+      default_action: delete
+      wizard:
+        helper_text: |
+          Sources for makerbase-automount@.service. Already make-installed at factory.
+          The installed udev rule lives at /lib/udev/rules.d/60-usbmount.rules; the
+          home-dir copy is build leftover.
+
+    - id: mount_log
+      display_name: /home/mount.log (vendor-script append-only log)
+      paths: ["/home/mount.log"]
+      default_action: delete
+      wizard:
+        helper_text: |
+          file_change_save.sh and plr.sh both append to this file (a
+          path typo for /home/sovol/mount.log judging by the prefix).
+          Once stock_keep drops file_change_save.sh from the boot
+          orchestrator, the only remaining writer is plr.sh on
+          power-loss-recovery events. Safe to clear here; plr.sh will
+          recreate it on next PLR.
+
+    - id: factory_resets_empty_payload
+      display_name: ~/patch/config/ (empty factory-reset payload directory)
+      paths: ["/home/sovol/patch/config/"]
+      default_action: keep
+      wizard: none
+      note: |
+        ~/factory_resets.sh expects ~/patch/config/*.cfg as the payload
+        to copy back over ~/printer_data/config/ when the user taps
+        FACTORY_RESETS on the touchscreen. The directory is empty on
+        the audited unit, so factory_resets.sh is a no-op. Sovol may
+        populate it in a future OTA. Kept by default so the touchscreen
+        macro doesn't 404 on access.
+
+  snapshot_paths:
+    - id: printer_data
+      display_name: Printer config + state (~/printer_data/)
+      path: "/home/sovol/printer_data"
+      default_selected: true
+      helper_text: |
+        printer.cfg, Macro.cfg, plr.cfg, chamber_hot.cfg, the
+        SAVE_CONFIG bed mesh + PID + input shaper, gcode queue,
+        klippy.log. Recommended snapshot before any changes.
+    - id: boot_partition
+      display_name: Boot partition (/boot/)
+      path: "/boot"
+      default_selected: true
+      helper_text: |
+        /boot/system.cfg (timezone / KS rotation / wifi pair) and
+        /boot/scripts/* (Sovol's vendor boot scripts).  stock_keep
+        rewrites btt_init.sh and clears the wifi fields in
+        system.cfg; this snapshot lets you roll back the boot side
+        independently.
+    - id: klipper_install
+      display_name: Sovol klipper install (~/klipper/)
+      path: "/home/sovol/klipper"
+      default_selected: false
+      helper_text: |
+        Only needed if firmware is being replaced (see firmware
+        choice). stock_keep with the default firmware setting does
+        not touch ~/klipper/.
+    - id: home_helpers
+      display_name: Sovol home-dir helpers (~/{plr,get_ip,factory_resets,ota_client}.sh, ~/patch, ~/pyhelper)
+      path: "/home/sovol"
+      default_selected: false
+      helper_text: |
+        Sovol's home-directory helpers and the factory-build patch
+        overlay. Skip unless you've customised any of them — these
+        are republishable from github.com/Sovol3d/SOVOL-ZERO.
+
+  paths:
+    - id: klipper_install
+      path: "/home/sovol/klipper"
+      role: stock_klipper_with_sovol_extras
+      action: snapshot_and_replace
+      snapshot_to: "/home/sovol/klipper.stock.{{timestamp}}"
+      notes: |
+        Sovol fork at git tag "1.3.7版本", origin
+        http://192.168.1.233/root/klipper.git (LAN-only, decorative).
+        Ports forward to upstream/Kalico require porting Sovol's
+        z_offset_calibration.py + the probe_eddy_current.py
+        modifications + probe_pressure.py.
+    - id: klippy_env
+      path: "/home/sovol/klippy-env"
+      role: stock_klipper_venv
+      action: snapshot_and_replace
+      snapshot_to: "/home/sovol/klippy-env.stock.{{timestamp}}"
+    - id: printer_data
+      path: "/home/sovol/printer_data"
+      role: config + state
+      action: preserve
+    - id: moonraker_install
+      path: "/home/sovol/moonraker"
+      role: third-party
+      action: preserve
+    - id: ks_install
+      path: "/home/sovol/KlipperScreen"
+      role: third-party_with_sovol_menu_overlay
+      action: preserve
+      notes: |
+        Stock KlipperScreen-start.sh is upstream-unmodified. The
+        klippy-side menu overlay (~/patch/menu.{cfg,py}) is in the
+        klipper tree, not this directory.
+    - id: boot_partition
+      path: "/boot"
+      role: vendor_boot_scripts + system_cfg
+      action: rewrite_btt_init_sh
+      notes: |
+        On stock_keep we rewrite /boot/scripts/btt_init.sh to drop
+        wifi_server, ota_service, and file_change_save while keeping
+        system_cfg.sh and the /boot/gcode/ sweep. /boot/system.cfg
+        and the rest of /boot/scripts/* (auto_brightness, set_rgb,
+        sound.sh, mp3/, etc.) are preserved.
 
 wizard:
   title: Sovol Zero Setup
-  extra_steps: []
+  extra_steps:
+    # Firmware-refresh prompt for stock_keep. Without this prompt
+    # install_firmware would run unconditionally on stock_keep
+    # (gated only by the generic confirm_before_run on the step
+    # itself, which is a yes/no rather than an opted-in choice).
+    # fresh_flash skips this prompt and always runs install_firmware
+    # because there's no existing klipper to keep.
+    - id: stock_keep_firmware_refresh
+      title: Refresh Klipper as part of stock_keep?
+      kind: choose_one
+      flow: stock_keep
+      question: |
+        stock_keep's main job is the security cleanup. As an
+        optional extra, the chosen firmware variant
+        ({{firmware.selected.display_name}}) can be (re-)installed
+        in place. Your existing ~/klipper is snapshotted to
+        ~/klipper.stock.<timestamp> first, so this is reversible.
 
+        For the default sovol_fork choice this refreshes Klipper to
+        whatever Sovol's GitHub publishes today — useful on a unit
+        that hasn't been OTAed in a while.
+
+        For klipper / kalico choices, it switches firmware lineage
+        and applies the Sovol klippy/extras overlay so the stock
+        printer.cfg still loads.
+
+        Pick "Skip" to leave your existing Klipper exactly as-is.
+      options:
+        - { id: refresh, label: "Refresh Klipper" }
+        - { id: skip, label: "Skip — keep my current Klipper" }
+      default: skip
+
+    # In-place OS upgrade vs clean install for fresh_flash. The
+    # printer_data + /boot/system.cfg snapshot pre-flash, then
+    # restore post-flash, lets a user move from the stock SPI-XI 2.3.3
+    # (Debian 11) image to BTT V3.1.0 (Debian 13) without losing
+    # printer.cfg / Macro.cfg / saved bed mesh / PID / input shaper /
+    # gcode queue / their /boot/system.cfg knobs (timezone, KS
+    # rotation, sound / vibration / brightness toggles).
+    - id: fresh_flash_preserve_state
+      title: In-place upgrade or clean install?
+      kind: choose_one
+      flow: fresh_flash
+      question: |
+        fresh_flash overwrites the eMMC. If this is an existing Sovol
+        Zero you're upgrading (e.g. moving from the stock SPI-XI 2.3.3
+        Debian 11 image to BTT's V3.1.0 Debian 13), Deckhand can
+        snapshot your printer.cfg / Macro.cfg / chamber_hot.cfg /
+        saved bed mesh / PID / input shaper / gcode queue /
+        /boot/system.cfg to your workstation BEFORE the flash, and
+        restore them AFTER the printer reboots into the new image.
+
+        Skipping snapshot+restore on a brand-new printer (or when you
+        want to start completely clean) is the right answer.
+      options:
+        - { id: preserve, label: "Upgrade — snapshot + restore my existing state" }
+        - { id: clean, label: "Clean install — wipe everything" }
+      default: preserve
+
+# Flows are not yet enabled. The verifiable hardware/identity/services
+# blocks above describe what *is* on the printer; they do not by
+# themselves drive an installer. Promotion to alpha (with flows enabled)
+# is gated on a working stock_keep and/or fresh_flash run on real
+# hardware. See docs/STOCK-INVENTORY.md for the full audit.
 flows:
-  stock_keep: { enabled: false }
-  fresh_flash: { enabled: false }
+  stock_keep:
+    enabled: true
+    preconditions:
+      - { kind: ssh_ok, severity: block }
+      - { kind: free_space_min, mountpoint: "/home/sovol", bytes: 524288000, severity: block }
+      - { kind: not_printing, severity: warn }
+    steps:
+      - id: backup_prompt
+        kind: prompt
+        message: |
+          This flow does the security cleanup pass on a stock Sovol
+          Zero. The wizard will let you choose what happens to each
+          vendor service and file before anything actually runs.
 
-verifiers: []
+          Default cleanup (you can override per-item):
+            - mask wifi_server.service (LAN-exposed root command server)
+            - delete the three factory wifi profiles (Spixi2023 etc.)
+            - clear WIFI_SSID/WIFI_PASSWD in /boot/system.cfg
+            - rewrite /boot/scripts/btt_init.sh to drop
+              connect_wifi.sh / file_change_save.sh / ota_service.sh
+            - disable moonraker-obico.service + hostapd.service
+            - delete factory-build leftover files
+              (~/ttyS3.py, ~/offline_lib/, ~/usbmount/, /home/mount.log)
+            - regenerate the factory-baked SSH host keys
+            - install Deckhand's identification marker
+
+          Klipper / Moonraker / KlipperScreen / Mainsail / your
+          printer.cfg / saved bed mesh / gcode queue are not touched
+          unless you opt into a firmware replacement on the next
+          screen.
+
+          Before continuing, back up the eMMC if you haven't.
+          Deckhand can do this for you over a USB eMMC adapter.
+        actions:
+          - { id: backup_now, label: Back up now (recommended) }
+          - { id: i_have_one, label: I already have a backup }
+          - { id: skip, label: Skip (not recommended) }
+
+      - id: snapshot_paths
+        kind: snapshot_paths
+        safe_to_rerun: true   # snapshot_paths timestamps each run; reruns produce additional snapshots, never destructive.
+        paths: [klipper_install, klippy_env]
+        # Targeted snapshot of the paths install_firmware later
+        # replaces. The wizard's S145 stock-config snapshot screen
+        # (driven separately by stock_os.snapshot_paths) handles the
+        # user-checkbox snapshot of printer_data / boot_partition /
+        # home_helpers.
+
+      # Bullseye reaches end-of-life Aug 2026; once Debian moves it
+      # to archive.debian.org the stock /etc/apt/sources.list URLs
+      # (deb.debian.org/debian bullseye*) stop working and `apt update`
+      # fails. Repoint to archive.debian.org BEFORE any apt-using step
+      # downstream (install_firmware will pull build deps; install_stack
+      # does the same).
+      - id: fix_apt_sources_if_bullseye_eoled
+        kind: conditional
+        when: 'os_codename_is("bullseye")'
+        then:
+          - id: fix_apt_sources_write
+            kind: write_file
+            target: "/etc/apt/sources.list"
+            template: shared/scripts/sources.list.bullseye-archive.tmpl
+            sudo: true
+            mode: "0644"
+            owner: root
+            idempotency:
+              # write_file auto-snapshots the prior sources.list to
+              # /etc/apt/sources.list.deckhand-pre-<ts>. Reruns produce
+              # the same archive.debian.org-pinned content.
+              resume: restart
+              post_check: "grep -q 'archive.debian.org/debian' /etc/apt/sources.list && grep -q 'bullseye main' /etc/apt/sources.list"
+          - id: fix_apt_sources_refresh
+            kind: ssh_commands
+            safe_to_rerun: true
+            commands:
+              - "sudo apt-get update"
+
+      - id: stop_services_for_change
+        kind: ssh_commands
+        safe_to_rerun: true   # `systemctl stop ... || true` is no-op on already-stopped services.
+        commands:
+          - "sudo systemctl stop wifi_server.service moonraker-obico.service hostapd.service KlipperScreen.service crowsnest.service 2>/dev/null || true"
+
+      - id: apply_services_decisions
+        kind: apply_services
+        idempotency:
+          # apply_services drives systemd state from the wizard's
+          # services-block decisions; reapplying is idempotent
+          # (already-disabled stays disabled, etc.).
+          resume: continue
+        # Consumes the user's wizard answers against
+        # stock_os.services[]. Default actions per the recommended
+        # field on each: wifi_server disable, moonraker-obico disable,
+        # hostapd disable, connect_wifi disable, file_change_save
+        # remove, ota_service disable, klipperscreen keep.
+
+      - id: mask_wifi_server
+        kind: ssh_commands
+        safe_to_rerun: true   # `systemctl mask ... || true` is idempotent.
+        commands:
+          - "sudo systemctl mask wifi_server.service 2>/dev/null || true"
+        when: 'services.wifi_server.action == "disable"'
+        # apply_services disables; mask is the additional step so a
+        # future Sovol OTA can't silently re-enable the LAN RCE.
+        # Gated on the user actually choosing to disable — if the user
+        # explicitly opted to keep wifi_server, we don't override that
+        # by masking.
+
+      - id: apply_files_decisions
+        kind: apply_files
+        idempotency:
+          # apply_files acts on the wizard's files-block decisions
+          # (delete / keep / clear); rm -f / cp -p / sed -i are all
+          # idempotent in the patterns we use.
+          resume: continue
+        # Consumes stock_os.files[]. Default actions:
+        # factory_wifi_profiles delete, ttyS3.py delete, offline_lib
+        # delete, usbmount delete, mount_log delete, patch_dir keep,
+        # boot_system_cfg_wifi keep (handled by next step).
+
+      - id: nm_reload
+        kind: ssh_commands
+        safe_to_rerun: true   # `nmcli connection reload || true` is idempotent.
+        commands:
+          - "sudo nmcli connection reload 2>/dev/null || true"
+        # NetworkManager picks up profile-file deletions on reload.
+
+      - id: clear_boot_system_cfg_wifi
+        kind: script
+        path: ./scripts/clear_boot_system_cfg_wifi.sh
+        sudo: false
+        timeout_seconds: 30
+        idempotency:
+          # In-place sed of WIFI_SSID/WIFI_PASSWD lines is idempotent —
+          # repeated runs target the same anchored lines and produce
+          # the same on-disk state. post_check verifies both fields
+          # are now empty strings.
+          resume: restart
+          post_check: "grep -qE '^WIFI_SSID=\"\"' /boot/system.cfg && grep -qE '^WIFI_PASSWD=\"\"' /boot/system.cfg"
+        # apply_files can only delete or keep — it can't field-edit.
+
+      - id: rewrite_btt_init_sh
+        kind: write_file
+        target: "/boot/scripts/btt_init.sh"
+        template: ./scripts/btt_init.sh.tmpl
+        sudo: true
+        mode: "0755"
+        owner: root
+        confirm_before_run: true
+        idempotency:
+          # write_file auto-snapshots prior file via default
+          # backup=true. Reruns produce a new snapshot alongside the
+          # existing one and overwrite the active file with the same
+          # template-rendered content.
+          resume: restart
+          post_check: "grep -q 'btt_init.sh (Deckhand-rewritten)' /boot/scripts/btt_init.sh"
+        # Auto-backup is on by default — the original lands at
+        # /boot/scripts/btt_init.sh.deckhand-pre-<ts> so a user who
+        # needs to restore Sovol's stock boot path can.
+
+      - id: install_firmware
+        kind: install_firmware
+        confirm_before_run: true
+        when: 'wizard.stock_keep_firmware_refresh == "refresh"'
+        idempotency:
+          # Skip if the venv at firmware.selected.venv_path exists
+          # AND the install_path's git origin matches the selected
+          # repo. cleanup_then_restart moves a half-cloned tree
+          # aside before retrying.
+          pre_check: "[ -d {{firmware.selected.venv_path}}/bin ] && [ \"$(git -C {{firmware.selected.install_path}} remote get-url origin 2>/dev/null)\" = \"{{firmware.selected.repo}}\" ]"
+          resume: cleanup_then_restart
+          cleanup: "[ -d {{firmware.selected.install_path}} ] && [ ! -f {{firmware.selected.venv_path}}/bin/python ] && mv {{firmware.selected.install_path}} {{firmware.selected.install_path}}.deckhand-partial || true"
+        # Snapshots the existing ~/klipper to klipper.stock.<ts> per
+        # stock_os.paths.klipper_install (action snapshot_and_replace),
+        # then clones the chosen firmware variant. Gated on the user
+        # choosing "Refresh Klipper" in the wizard.extra_steps prompt;
+        # default is "skip" so the existing Klipper stays untouched.
+
+      - id: install_klipper_extras
+        kind: script
+        path: ./scripts/install_sovol_klipper_extras.sh
+        env:
+          FIRMWARE_PATH: "{{ firmware.selected.install_path }}"
+        timeout_seconds: 600
+        when: 'wizard.stock_keep_firmware_refresh == "refresh"'
+        safe_to_rerun: true   # script is byte-exact overlay; idempotent overwrite of the same files.
+        # Only runs alongside install_firmware. The embedded overlay
+        # under klipper-extras/sovol_dev/ pins all 11 Sovol-specific
+        # files at byte-exact copies extracted from the audited live
+        # unit. Even for the sovol_fork firmware choice the overlay
+        # is needed because Sovol's public master is missing
+        # probe_eddy_current.py and ldc1612.py.
+
+      - id: install_marker
+        kind: install_marker
+        filename: deckhand.json
+        safe_to_rerun: true   # routes through write_file; auto-backs-up the previous marker on rerun.
+
+      - id: regen_ssh_host_keys
+        kind: script
+        path: ./scripts/regen_ssh_host_keys.sh
+        sudo: false
+        timeout_seconds: 60
+        confirm_before_run: true
+        idempotency:
+          # Skip if all three host keys (ed25519, RSA, ECDSA) have
+          # already rotated away from the factory `chris-virtual-machine`
+          # values. After one successful run this is a no-op; before
+          # the first run it's the load-bearing security step.
+          pre_check: "[ \"$(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key 2>/dev/null | awk '{print $2}')\" != 'SHA256:r29wTDuG7tzLvsyF4P06NSatzmc6dKh3dHWw3uGXs5w' ] && [ \"$(ssh-keygen -lf /etc/ssh/ssh_host_rsa_key 2>/dev/null | awk '{print $2}')\" != 'SHA256:mWrPlIsu+ciWZH3iYUw1l3hEt8zQ5B3bpcBiqoIgoHo' ] && [ \"$(ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key 2>/dev/null | awk '{print $2}')\" != 'SHA256:HF6v3Z3Ef9E4MDRyJTouFmV3JDnQdpbc7PPVpwN4VXs' ]"
+          resume: restart
+        # `systemctl reload ssh` doesn't kill existing sessions, but
+        # the next SSH login (or Deckhand reconnect) will see a new
+        # host fingerprint. The wizard surfaces the new fingerprint
+        # to the user after this step completes.
+
+      - id: start_services
+        kind: ssh_commands
+        safe_to_rerun: true   # daemon-reload + start ... || true + restart-if-not-active are all idempotent.
+        commands:
+          - "sudo systemctl daemon-reload"
+          - "sudo systemctl start crowsnest.service KlipperScreen.service 2>/dev/null || true"
+          - "sudo systemctl is-active klipper moonraker || sudo systemctl restart klipper moonraker"
+
+      - id: run_verifiers
+        kind: verify
+
+  fresh_flash:
+    enabled: true
+    preconditions:
+      - { kind: ssh_ok, severity: warn }
+      - { kind: usb_block_device_present, severity: block }
+      - { kind: free_space_min, mountpoint: "/", bytes: 2000000000, severity: warn }
+    steps:
+      # If the user picked "Upgrade — snapshot + restore" in the
+      # wizard.fresh_flash_preserve_state prompt, take the snapshot
+      # FIRST while the printer is still on its old image and
+      # SSH-reachable. snapshot_archive consumes the user's selection
+      # from the S145 stock-config snapshot screen (driven by
+      # stock_os.snapshot_paths), bundles the chosen paths into a
+      # workstation-side .tar.gz, and stages it for later restore.
+      - id: preserve_state_snapshot
+        kind: snapshot_archive
+        when: 'wizard.fresh_flash_preserve_state == "preserve"'
+        paths_from: stock_os.snapshot_paths
+        archive_name: "sovol-zero-preserve-{{timestamp}}.tar.gz"
+
+      - id: choose_os_image
+        kind: choose_one
+        options_from: os.fresh_install_options
+
+      - id: choose_target_disk
+        kind: disk_picker
+        filter:
+          bus: [usb]
+          removable: true
+          size_near_bytes: "{{ hardware.sbc.emmc_size_bytes }}"
+        # The Zero's eMMC is ~7.8 GB; the BTT image expands to fill,
+        # so the target USB-attached eMMC just needs to be ≥ 8 GB.
+
+      - id: download_os
+        kind: os_download
+        # Pulls the picked .img.xz over HTTPS, verifies the
+        # schema-required sha256 before any disk write happens.
+
+      - id: flash_disk
+        kind: flash_disk
+        verify_after_write: true
+        confirm_before_run: true
+        idempotency:
+          # flash_disk verifies + tracks its own write progress; the
+          # cleanup-then-restart resume defers to the step machinery's
+          # internal verify-and-skip path.
+          resume: cleanup_then_restart
+          cleanup: "true"
+        # Writes to the USB-attached eMMC, reads back to verify.
+
+      - id: flash_done_prompt
+        kind: prompt
+        safe_to_rerun: true
+        message: |
+          Flash complete. Move the eMMC back into the printer and
+          power on. Default credentials on a freshly-flashed BTT CB1
+          image are biqu / biqu (NOT sovol/sovol — that was Sovol's
+          SPI-XI image, which is now overwritten).
+
+          You may want to run `passwd` over SSH after first login
+          to set a new password before the rest of the flow runs.
+          When the printer answers SSH, click Continue.
+        actions:
+          - { id: continue, label: Continue }
+
+      - id: wait_for_ssh
+        kind: wait_for_ssh
+        timeout_seconds: 600
+        safe_to_rerun: true
+
+      - id: first_boot_setup
+        kind: ssh_commands
+        safe_to_rerun: true   # apt-get update + install -y are idempotent.
+        commands:
+          - "sudo apt-get update"
+          - "sudo apt-get install -y git python3-venv build-essential dpkg-dev libffi-dev libssl-dev"
+          - "sudo apt-get install -y can-utils iproute2"
+
+      - id: restore_preserved_state
+        kind: script
+        path: ./scripts/restore_preserved_state.sh
+        when: 'wizard.fresh_flash_preserve_state == "preserve"'
+        timeout_seconds: 300
+        idempotency:
+          # Skip if a marker file documenting a successful prior restore
+          # is already present. cleanup_then_restart removes a partial
+          # restore directory before retrying.
+          pre_check: "[ -f /home/sovol/.deckhand-restore-complete ]"
+          resume: cleanup_then_restart
+          cleanup: "rm -rf /tmp/deckhand-restore-stage"
+          post_check: "[ -f /home/sovol/.deckhand-restore-complete ]"
+        # Controller stages the snapshot_archive output onto the
+        # printer at /tmp/deckhand-restore.tar.gz before invoking
+        # this script. Restores ~/printer_data and /boot/system.cfg.
+        # Skips ~/klipper (about to be replaced by install_firmware)
+        # and the Sovol home helpers (about to be reinstalled by
+        # install_sovol_stock_configs).
+
+      - id: install_firmware
+        kind: install_firmware
+        confirm_before_run: true
+        idempotency:
+          pre_check: "[ -d {{firmware.selected.venv_path}}/bin ] && [ \"$(git -C {{firmware.selected.install_path}} remote get-url origin 2>/dev/null)\" = \"{{firmware.selected.repo}}\" ]"
+          resume: cleanup_then_restart
+          cleanup: "[ -d {{firmware.selected.install_path}} ] && [ ! -f {{firmware.selected.venv_path}}/bin/python ] && mv {{firmware.selected.install_path}} {{firmware.selected.install_path}}.deckhand-partial || true"
+
+      - id: install_klipper_extras
+        kind: script
+        path: ./scripts/install_sovol_klipper_extras.sh
+        env:
+          FIRMWARE_PATH: "{{ firmware.selected.install_path }}"
+        timeout_seconds: 600
+        safe_to_rerun: true   # byte-exact overlay; idempotent overwrite.
+        # Always runs; see stock_keep step of the same name for the
+        # rationale (Sovol's public master is missing two extras).
+
+      - id: install_stack
+        kind: install_stack
+        idempotency:
+          # install_stack drives kiauh / moonraker / web UI / crowsnest
+          # installs; each component checks its own existing-install
+          # state. continue resume picks up at the first not-yet-installed
+          # component.
+          resume: continue
+        components:
+          - moonraker
+          - "{{stack.webui.selected}}"
+          - kiauh
+          - crowsnest
+
+      - id: install_stock_configs
+        kind: script
+        path: ./scripts/install_sovol_stock_configs.sh
+        timeout_seconds: 300
+        safe_to_rerun: true   # script honors existing user-edited configs and re-copies the rest; same on-disk state on rerun.
+        # Clones github.com/Sovol3d/SOVOL-ZERO at the pinned commit
+        # and copies printer.cfg / Macro.cfg / chamber_hot.cfg /
+        # plr.cfg / get_ip.cfg / shell_command.cfg / moonraker.conf /
+        # crowsnest.conf into ~/printer_data/config/. Also installs
+        # ~/get_ip.sh / plr.sh / clear_plr.sh / factory_resets.sh /
+        # ota_client.sh and the ~/pyhelper + ~/patch trees. Honors
+        # any existing user-edited config files (won't clobber them).
+
+      - id: configure_can0
+        kind: write_file
+        target: "/etc/network/interfaces.d/can0"
+        content: |
+          allow-hotplug can0
+          iface can0 can static
+              bitrate 1000000
+              up ip link set $IFACE txqueuelen 256
+        sudo: true
+        mode: "0644"
+        owner: root
+        idempotency:
+          # write_file auto-snapshots prior content (default backup=true)
+          # and writes the same canonical can0 stanza on every run.
+          resume: restart
+          post_check: "grep -q 'bitrate 1000000' /etc/network/interfaces.d/can0"
+        # The BTT base image doesn't preconfigure can0; without this
+        # the gs_usb CAN bridge stays down and the three CAN MCUs
+        # are unreachable.
+
+      - id: bring_up_can0
+        kind: ssh_commands
+        safe_to_rerun: true   # `ifup can0 || ip link set can0 up` is idempotent (already-up CAN remains up).
+        commands:
+          - "sudo ifup can0 || sudo ip link set can0 up type can bitrate 1000000"
+          - "ip -d link show can0"
+
+      - id: build_and_flash_mcus
+        kind: script
+        path: ./scripts/build_and_flash_mcus.sh
+        env:
+          FIRMWARE_PATH: "{{ firmware.selected.install_path }}"
+        timeout_seconds: 1800
+        confirm_before_run: true
+        idempotency:
+          # Skip if all three MCU firmware blobs are already present
+          # in ~/printer_data/build/ (the script writes them there).
+          # cleanup_then_restart removes any partial out/ from a prior
+          # aborted klipper build.
+          pre_check: "[ -s /home/sovol/printer_data/build/mcu_klipper.bin ] && [ -s /home/sovol/printer_data/build/extruder_mcu_klipper.bin ] && [ -s /home/sovol/printer_data/build/extra_mcu_klipper.bin ]"
+          resume: cleanup_then_restart
+          cleanup: "rm -rf {{firmware.selected.install_path}}/out"
+        # Builds main (stm32h750) + extruder (stm32f103) +
+        # hot/chamber (stm32f103) klipper firmwares from the
+        # chosen klipper tree's .config / .config103 build configs
+        # and katapult-flashes each over CAN. ~15-20 minutes total
+        # depending on CB1 build performance.
+
+      - id: apply_files_decisions
+        kind: apply_files
+        idempotency:
+          resume: continue
+        # On fresh_flash the cleanup-tier files mostly don't exist
+        # on the freshly-flashed BTT base image — apply_files
+        # no-ops on missing paths. Run anyway for consistency with
+        # stock_keep so the marker and audit trail are uniform.
+
+      - id: install_marker
+        kind: install_marker
+        filename: deckhand.json
+        safe_to_rerun: true
+
+      - id: install_screen
+        kind: install_screen
+        idempotency:
+          resume: continue
+        # KlipperScreen + dependencies. The BTT image may already
+        # have it; install_screen is idempotent.
+
+      - id: start_services
+        kind: ssh_commands
+        safe_to_rerun: true   # daemon-reload + enable --now ... || true are idempotent.
+        commands:
+          - "sudo systemctl daemon-reload"
+          - "sudo systemctl enable --now klipper moonraker crowsnest 2>/dev/null || true"
+          - "sudo systemctl enable --now KlipperScreen 2>/dev/null || true"
+
+      - id: run_verifiers
+        kind: verify
+
+verifiers:
+  # All verifiers are written to pass after BOTH stock_keep and
+  # fresh_flash. Where a check assumes a stock-image artifact (e.g.
+  # the wifi_server.service unit), the verifier accepts "unit doesn't
+  # exist" (fresh_flash on BTT base) AND "unit is masked / disabled"
+  # (stock_keep) as equivalent successes — anything that's not
+  # "active" passes.
+
+  # Klipper + Moonraker are up.
+  - id: klipper_service_active
+    kind: ssh_command
+    command: "systemctl is-active klipper"
+    expect_stdout_contains: active
+  - id: moonraker_reports_klipper
+    kind: http_get
+    url: "http://{{host}}:7125/printer/info"
+    expect_json_path: "$.result.state"
+    expect_value: ready
+
+  # Stock printer.cfg is in place. Either Sovol's stock copy
+  # (fresh_flash via install_sovol_stock_configs) or the user's
+  # existing one (stock_keep, which doesn't touch printer_data/).
+  - id: printer_cfg_present
+    kind: ssh_command
+    command: "test -s /home/sovol/printer_data/config/printer.cfg && echo present"
+    expect_stdout_contains: present
+
+  # CAN bus is up at 1 Mbit (the three MCUs depend on it).
+  - id: can0_up_at_1mbit
+    kind: ssh_command
+    command: "ip -d link show can0 2>/dev/null | grep -c 'bitrate 1000000'"
+    expect_stdout_equals: "1"
+
+  # Sovol klippy/extras present (sovol_fork firmware OR overlay applied
+  # to upstream klipper / kalico). Required for the stock printer.cfg
+  # to load — references z_offset_calibration / probe_eddy_current
+  # with vir_contact_speed.
+  - id: sovol_extras_z_offset_calibration
+    kind: ssh_command
+    command: "find ~/klipper ~/kalico -name z_offset_calibration.py 2>/dev/null | head -1"
+    expect_stdout_contains: z_offset_calibration.py
+  - id: sovol_extras_probe_eddy_current
+    kind: ssh_command
+    command: "grep -l TYPE_VIR_TOUCH ~/klipper/klippy/extras/probe_eddy_current.py ~/kalico/klippy/extras/probe_eddy_current.py 2>/dev/null | head -1"
+    expect_stdout_contains: probe_eddy_current.py
+
+  # wifi_server.py is gone from the LAN — port 5000 unbound.
+  # Equivalent on either flow: stock_keep masks the unit; fresh_flash
+  # never had it.
+  - id: no_wifi_server_listening
+    kind: ssh_command
+    command: "ss -tnlp 2>/dev/null | grep -c ':5000 '"
+    expect_stdout_equals: "0"
+  - id: wifi_server_not_active
+    kind: ssh_command
+    command: "systemctl is-active wifi_server.service 2>/dev/null"
+    expect_stdout_not_equals: "active"
+
+  # Phone-home is dormant. moonraker-obico inactive (stock_keep) or
+  # absent (fresh_flash without an explicit obico install — which our
+  # install_stack doesn't include in the default component set).
+  - id: moonraker_obico_not_active
+    kind: ssh_command
+    command: "systemctl is-active moonraker-obico.service 2>/dev/null"
+    expect_stdout_not_equals: "active"
+  - id: hostapd_not_active
+    kind: ssh_command
+    command: "systemctl is-active hostapd.service 2>/dev/null"
+    expect_stdout_not_equals: "active"
+  - id: no_obico_outbound
+    kind: ssh_command
+    command: "ss -tnp 2>/dev/null | grep -c app.obico.io"
+    expect_stdout_equals: "0"
+
+  # SSH host keys are no longer the factory triple. After stock_keep,
+  # because regen_ssh_host_keys ran. After fresh_flash, because BTT's
+  # CB1 image regenerates host keys on first boot (different lineage,
+  # not chris-virtual-machine).
+  - id: ssh_ed25519_key_not_factory
+    kind: ssh_command
+    command: "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key | awk '{print $2}'"
+    expect_stdout_not_equals: "SHA256:r29wTDuG7tzLvsyF4P06NSatzmc6dKh3dHWw3uGXs5w"
+  - id: ssh_rsa_key_not_factory
+    kind: ssh_command
+    command: "ssh-keygen -lf /etc/ssh/ssh_host_rsa_key | awk '{print $2}'"
+    expect_stdout_not_equals: "SHA256:mWrPlIsu+ciWZH3iYUw1l3hEt8zQ5B3bpcBiqoIgoHo"
+  - id: ssh_ecdsa_key_not_factory
+    kind: ssh_command
+    command: "ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key | awk '{print $2}'"
+    expect_stdout_not_equals: "SHA256:HF6v3Z3Ef9E4MDRyJTouFmV3JDnQdpbc7PPVpwN4VXs"
+
+  # Factory wifi profiles are absent (deleted by apply_files on
+  # stock_keep, never present on fresh_flash).
+  - id: factory_wifi_profiles_absent
+    kind: ssh_command
+    command: "ls /etc/NetworkManager/system-connections/ 2>/dev/null | grep -cE '^(SPIXINETGEAR26|Spixi|ZYIPTest)\\.nmconnection$'"
+    expect_stdout_equals: "0"
+
+  # /boot/system.cfg either doesn't exist (fresh_flash) or has the
+  # wifi credential pair cleared (stock_keep). Either is acceptable.
+  - id: boot_system_cfg_wifi_safe
+    kind: ssh_command
+    command: "test ! -f /boot/system.cfg || ! grep -E '^WIFI_(SSID|PASSWD)=\"[^\"]+\"$' /boot/system.cfg; echo done"
+    expect_stdout_contains: done
+
+  # Boot orchestrator either doesn't exist (fresh_flash) or doesn't
+  # invoke the three vendor daemons we don't want (stock_keep).
+  - id: btt_init_no_connect_wifi
+    kind: ssh_command
+    command: "test ! -f /boot/scripts/btt_init.sh || [ $(grep -cE '^[^#]*connect_wifi\\.sh' /boot/scripts/btt_init.sh) = 0 ]; echo $?"
+    expect_stdout_contains: "0"
+  - id: btt_init_no_file_change_save
+    kind: ssh_command
+    command: "test ! -f /boot/scripts/btt_init.sh || [ $(grep -cE '^[^#]*file_change_save\\.sh' /boot/scripts/btt_init.sh) = 0 ]; echo $?"
+    expect_stdout_contains: "0"
+  - id: btt_init_no_ota_service
+    kind: ssh_command
+    command: "test ! -f /boot/scripts/btt_init.sh || [ $(grep -cE '^[^#]*ota_service\\.sh' /boot/scripts/btt_init.sh) = 0 ]; echo $?"
+    expect_stdout_contains: "0"
+
+  # Deckhand identification marker landed.
+  - id: deckhand_marker_present
+    kind: ssh_command
+    command: "test -f /home/sovol/printer_data/config/deckhand.json && echo present"
+    expect_stdout_contains: present

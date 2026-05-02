@@ -1,0 +1,29 @@
+[Unit]
+Description=Run start.sh at boot
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/sovol/zhongchuang/build/start.sh
+WorkingDirectory=/home/sovol/zhongchuang/build
+User=root
+
+# Restart policy — Sovol expects the daemon may segfault and wants
+# it to come back up cleanly.
+Restart=always
+RestartSec=5s
+
+# Send stdout/stderr to journal so `journalctl -u makerbase-client`
+# captures crash output.
+StandardOutput=journal
+StandardError=journal
+
+# Allow unbounded core dumps (for postmortem on crashes).
+LimitCORE=infinity
+
+# Preload libSegFault so segfaults produce stack traces in the
+# journal rather than just exiting silently.
+Environment="LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libSegFault.so"
+
+[Install]
+WantedBy=multi-user.target

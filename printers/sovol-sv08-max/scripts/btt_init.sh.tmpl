@@ -1,0 +1,70 @@
+#!/bin/bash
+# btt_init.sh (Deckhand-rewritten)
+#
+# Replaces Sovol's stock /boot/scripts/btt_init.sh, which launches the
+# config-dir inotify watcher (file_change_save.sh — duplicate work,
+# logs noise to /home/mount.log) and the boot-time wifi connector
+# (connect_wifi.sh — has a USB-stick fallback that's a physical-access
+# wifi-takeover vector). Sovol's stock orchestrator on the SV08 Max
+# already had the OTA daemon line commented out; we keep it that way.
+#
+# What we always do: chown ~/sovol, sweep /boot/gcode/ into the
+# print spool, and run system_cfg.sh (handles timezone/hostname/
+# KlipperScreen rotation + BTT_PAD7 toggles from /boot/system.cfg).
+#
+# Behavior beyond that is decided by Deckhand at install time from the
+# wizard choices. Template placeholders are filled by Deckhand's
+# template engine; anything the user didn't opt into is absent from
+# the generated script.
+
+set -e
+
+# Always-run: fix /home/sovol ownership in case anything was created
+# by root during boot. Stock behavior, harmless to keep.
+sudo chown sovol:sovol /home/sovol/ -R
+
+# Always-run: sweep gcode files dropped into /boot/gcode/ (a USB-card
+# pickup mechanism — vendor convenience, no security implications).
+cd /boot/gcode
+if ls *.gcode > /dev/null 2>&1; then
+    sudo cp ./*.gcode /home/sovol/printer_data/gcodes -fr
+    sudo rm ./*.gcode -fr
+fi
+sync
+
+cd /boot/scripts
+
+# Always-run: apply /boot/system.cfg (timezone, hostname, KS rotation,
+# BTT_PAD7 toggle, sound/vibration toggles). User-editable from a
+# card reader, so we keep this active.
+./system_cfg.sh &
+
+{{#if connect_wifi.keep}}
+# connect_wifi.sh: keep launching at boot. The script reads
+# WIFI_SSID/WIFI_PASSWD from /boot/system.cfg AND, as a fallback,
+# looks for ~/printer_data/gcodes/USB/wifi.cfg on a connected USB
+# stick. The USB-stick branch is a physical-access wifi takeover
+# vector but the user opted in.
+./connect_wifi.sh &
+{{/if}}
+{{#if connect_wifi.disable}}
+# connect_wifi.sh: NOT launched. NetworkManager remembers the
+# user's configured network on its own; the boot-time reconnect is
+# unnecessary, and the USB-stick wifi.cfg fallback is a takeover
+# vector that's safer not to expose.
+{{/if}}
+
+# file_change_save.sh: always dropped. Klipper and Moonraker handle
+# config persistence on their own; this script is duplicate work and
+# its log noise (`Device /dev/sdhci is no longer available`) ends up
+# in /home/mount.log along with the PLR script's debug appends.
+
+# ota_service.sh: kept absent, matching Sovol's stock behavior on the
+# SV08 Max. The script is on disk and the _OTA Klipper macro is
+# wired, but Sovol left the launch line commented out at factory —
+# the SV08 Max isn't on Sovol's Comgrow OTA channel out of the box.
+
+# extend_fs.sh, auto_setmcu_id.sh, sync.sh: stock had these
+# commented out (one-shot rootfs expansion, MCU UUID auto-discovery,
+# periodic sync loop — all superseded by other mechanisms). We keep
+# them off.

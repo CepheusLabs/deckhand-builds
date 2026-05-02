@@ -1,0 +1,28 @@
+# /etc/apt/sources.list — Deckhand-rewritten for Debian Bullseye EOL.
+#
+# Shared template used by every profile that runs on Debian Bullseye
+# (or Bullseye-derived) images: at minimum the Sovol SPI-XI 2.3.3
+# image lineage (Sovol Zero + Sovol SV08 Max + likely SV08 Mini) and
+# any future Bullseye-shipping printer profile. Bullseye reaches
+# end-of-life in August 2026; once Debian moves it to
+# archive.debian.org, the stock `deb.debian.org/debian bullseye*`
+# URLs stop responding and `apt update` fails.
+#
+# Written by Deckhand during the stock_keep flow when the conditional
+# `fix_apt_sources_if_bullseye_eoled` fires (gated on
+# os_codename_is("bullseye") AND apt_remote_unreachable for
+# deb.debian.org). The prior sources.list is auto-snapshotted to
+# /etc/apt/sources.list.deckhand-pre-<ts>; that snapshot is the
+# rollback path if a user later wants to switch back (e.g. after a
+# fresh-flash to Bookworm/Trixie which has no need of this template).
+#
+# All three sub-archives (main+updates, backports, security) are
+# preserved. archive.debian.org serves them statically post-EOL —
+# they don't receive new updates but existing packages are still
+# installable, which is the expected behavior for users still on
+# the old release.
+
+deb http://archive.debian.org/debian bullseye main contrib non-free
+deb http://archive.debian.org/debian bullseye-updates main contrib non-free
+deb http://archive.debian.org/debian bullseye-backports main contrib non-free
+deb http://archive.debian.org/debian-security bullseye-security main contrib non-free
